@@ -29,7 +29,12 @@ echo "Dataset confirmed: $(wc -l < ../../data/colony_training_set_v2_full.jsonl)
 echo "--------------------------------------------------------------------"
 echo "🚀 Training Tier 1: Oracle Reasoner (DeepSeek-R1-Distill-Qwen-14B)"
 echo "--------------------------------------------------------------------"
-python train_sft.py --tier oracle --config config.yaml
+if [ -f "./checkpoints/invariant_mind_oracle_14b/adapter_model.safetensors" ]; then
+    echo "✅ SFT Adapter checkpoint already exists in ./checkpoints/invariant_mind_oracle_14b!"
+    echo "Preserving converged weights and proceeding directly to alignment."
+else
+    python train_sft.py --tier oracle --config config.yaml
+fi
 
 # 4. Optional DPO Alignment
 if [ -f "../../data/colony_dpo_pairs_v1.jsonl" ]; then

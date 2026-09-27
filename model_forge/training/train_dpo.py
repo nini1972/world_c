@@ -17,7 +17,11 @@ from transformers import (
     TrainingArguments
 )
 from peft import LoraConfig, PeftModel, prepare_model_for_kbit_training
-from trl import DPOTrainer
+try:
+    from trl import DPOConfig, DPOTrainer
+except ImportError:
+    from trl import DPOTrainer
+    DPOConfig = TrainingArguments
 
 def parse_args():
     parser = argparse.ArgumentParser(description="DPO alignment for InvariantMind")
@@ -74,7 +78,7 @@ def main():
     dataset = load_dpo_dataset(args.dpo_data)
     print(f"Loaded {len(dataset)} preference pairs.")
     
-    arg_sig = inspect.signature(TrainingArguments.__init__)
+    arg_sig = inspect.signature(DPOConfig.__init__)
     training_kwargs = {
         "output_dir": args.output_dir,
         "per_device_train_batch_size": 1,
@@ -85,7 +89,10 @@ def main():
         "logging_steps": 5,
         "bf16": torch.cuda.is_bf16_supported(),
         "save_strategy": "epoch",
-        "gradient_checkpointing": True
+        "gradient_checkpointing": True,
+        "beta": 0.1,
+        "max_length": 2048,
+        "max_prompt_length": 1024,
     }
     if "warmup_ratio" in arg_sig.parameters:
         training_kwargs["warmup_ratio"] = 0.1
@@ -93,22 +100,26 @@ def main():
         training_kwargs["warmup_steps"] = 0.1
         
     filtered_args = {k: v for k, v in training_kwargs.items() if k in arg_sig.parameters}
-    training_args = TrainingArguments(**filtered_args)
+    training_args = DPOConfig(**filtered_args)
     
     dpo_sig = inspect.signature(DPOTrainer.__init__)
     dpo_kwargs = {
         "model": model,
-        "ref_model": None,
         "args": training_args,
-        "beta": 0.1,
         "train_dataset": dataset,
-        "max_length": 2048,
-        "max_prompt_length": 1024
     }
+    if "ref_model" in dpo_sig.parameters:
+        dpo_kwargs["ref_model"] = None
     if "tokenizer" in dpo_sig.parameters:
         dpo_kwargs["tokenizer"] = tokenizer
     elif "processing_class" in dpo_sig.parameters:
         dpo_kwargs["processing_class"] = tokenizer
+    if "beta" in dpo_sig.parameters:
+        dpo_kwargs["beta"] = 0.1
+    if "max_length" in dpo_sig.parameters:
+        dpo_kwargs["max_length"] = 2048
+    if "max_prompt_length" in dpo_sig.parameters:
+        dpo_kwargs["max_prompt_length"] = 1024
 
     dpo_trainer = DPOTrainer(**dpo_kwargs)
     
