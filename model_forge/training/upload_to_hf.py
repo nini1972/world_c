@@ -4,10 +4,18 @@ Publishes the fine-tuned DPO adapter with a comprehensive Model Card.
 """
 
 import os
+import sys
+import subprocess
 import argparse
-from huggingface_hub import HfApi, create_repo
 
-MODEL_CARD = """---
+try:
+    from huggingface_hub import HfApi, create_repo
+except ImportError:
+    print("Installing huggingface_hub...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "huggingface_hub"])
+    from huggingface_hub import HfApi, create_repo
+
+MODEL_CARD = r"""---
 license: apache-2.0
 base_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
 library_name: peft
