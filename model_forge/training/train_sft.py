@@ -180,7 +180,6 @@ def main():
         "model": model,
         "train_dataset": train_data,
         "eval_dataset": eval_data,
-        "peft_config": peft_cfg,
         "args": training_args,
     }
     if "dataset_text_field" in sft_sig.parameters:
