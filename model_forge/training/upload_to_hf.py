@@ -1,6 +1,6 @@
 """
-Upload InvariantMind-v1 Adapter to Hugging Face Hub
-Publishes the fine-tuned DPO adapter with a comprehensive Model Card.
+Upload InvariantMind-v1 Adapters (Oracle & Worker Tiers) to Hugging Face Hub
+Publishes the fine-tuned PEFT adapter with a comprehensive Model Card.
 """
 
 import os
@@ -15,7 +15,7 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "huggingface_hub"])
     from huggingface_hub import HfApi, create_repo
 
-MODEL_CARD = r"""---
+ORACLE_MODEL_CARD = r"""---
 license: apache-2.0
 base_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
 library_name: peft
@@ -79,11 +79,72 @@ print(tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_toke
 ```
 """
 
+WORKER_MODEL_CARD = r"""---
+license: apache-2.0
+base_model: Qwen/Qwen2.5-Coder-7B-Instruct
+library_name: peft
+pipeline_tag: text-generation
+tags:
+  - scientific-ai
+  - autonomous-agents
+  - colony-trained
+  - qlora
+  - code-generation
+  - simulation-engineering
+  - kuramoto
+  - cellular-automata
+---
+
+# InvariantMind-Worker-7B (Worker Engineer - 7B)
+
+**InvariantMind-Worker-7B** is the dedicated computational engineering and simulation synthesis engine of the dual-tier InvariantMind architecture. While the Tier 1 Oracle (`InvariantMind-v1-14B`) excels at high-level epistemic synthesis, hypothesis generation, and formal proofs, **Tier 2 Worker-7B** is specialized in transforming theoretical conjectures into verified, vectorized simulation code, numerical ODE/PDE integrators, and automated empirical experimentation.
+
+## Architecture & Lineage
+* **Base Model:** `Qwen/Qwen2.5-Coder-7B-Instruct`
+* **Fine-Tuning Method:** 4-bit NormalFloat QLoRA ($r=64, \alpha=128$)
+* **Colony Training Data:** 2,330 curated scientific episodes (19.4 MB) encompassing rigorous simulation scripts, verification suites, and epistemic tool calls.
+* **Target Capabilities:** High-performance vectorized scientific computing (NumPy, SciPy, Numba), stiff differential equation solvers, cellular automata engines, and conservation-law invariant checks.
+
+## How to Use
+
+```python
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import PeftModel
+
+base_model_name = "Qwen/Qwen2.5-Coder-7B-Instruct"
+adapter_id = "{repo_id}"
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_quant_type="nf4"
+)
+
+tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+base_model = AutoModelForCausalLM.from_pretrained(
+    base_model_name,
+    quantization_config=bnb_config,
+    device_map="auto"
+)
+model = PeftModel.from_pretrained(base_model, adapter_id)
+
+prompt = "Write an optimized, vectorized Python implementation using NumPy to simulate N coupled Kuramoto oscillators and compute order parameter R(t)."
+messages = [{"role": "user", "content": prompt}]
+inputs = tokenizer(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True), return_tensors="pt").to("cuda")
+
+with torch.no_grad():
+    outputs = model.generate(**inputs, max_new_tokens=600, temperature=0.6)
+print(tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True))
+```
+"""
+
 def main():
     parser = argparse.ArgumentParser(description="Upload InvariantMind to Hugging Face")
-    parser.add_argument("--repo_id", required=True, help="HF repo name, e.g., 'your-username/InvariantMind-v1-14B'")
+    parser.add_argument("--repo_id", required=True, help="HF repo name, e.g., 'Ninitje/InvariantMind-Worker-7B'")
+    parser.add_argument("--tier", choices=["oracle", "worker"], default="worker", help="Model tier: oracle or worker")
     parser.add_argument("--token", default=None, help="Hugging Face access token with WRITE permission")
-    parser.add_argument("--adapter_dir", default="./checkpoints/invariant_mind_dpo", help="Path to adapter checkpoint")
+    parser.add_argument("--adapter_dir", default=None, help="Path to adapter checkpoint")
     parser.add_argument("--private", action="store_true", help="Make repository private")
     args = parser.parse_args()
 
@@ -91,7 +152,16 @@ def main():
     if not token:
         raise ValueError("Please provide a Hugging Face token via --token or the HF_TOKEN environment variable.")
 
-    print(f"Connecting to Hugging Face as owner of: {args.repo_id}")
+    adapter_dir = args.adapter_dir
+    if not adapter_dir:
+        adapter_dir = "./checkpoints/invariant_mind_worker_7b" if args.tier == "worker" else "./checkpoints/invariant_mind_dpo"
+
+    print("====================================================================")
+    print(f"🚀 Uploading InvariantMind ({args.tier.upper()} Tier) to Hugging Face Hub")
+    print(f"📦 Target Repository: {args.repo_id}")
+    print(f"📁 Local Checkpoint:  {adapter_dir}")
+    print("====================================================================")
+
     api = HfApi(token=token)
 
     # 1. Create Repo if not exists
@@ -99,23 +169,25 @@ def main():
     print(f"Repository ready: https://huggingface.co/{args.repo_id}")
 
     # 2. Write custom Model Card README
-    readme_path = os.path.join(args.adapter_dir, "README.md")
+    readme_path = os.path.join(adapter_dir, "README.md")
+    template = WORKER_MODEL_CARD if args.tier == "worker" else ORACLE_MODEL_CARD
     with open(readme_path, "w", encoding="utf-8") as f:
-        f.write(MODEL_CARD.replace("{repo_id}", args.repo_id))
+        f.write(template.replace("{repo_id}", args.repo_id))
     print("Generated Model Card (README.md)")
 
     # 3. Upload all files from adapter_dir
-    print(f"Uploading files from {args.adapter_dir} to {args.repo_id}...")
+    print(f"Uploading files from {adapter_dir} to {args.repo_id}...")
     api.upload_folder(
-        folder_path=args.adapter_dir,
+        folder_path=adapter_dir,
         repo_id=args.repo_id,
         repo_type="model"
     )
 
     print("====================================================================")
-    print(f"🎉 Successfully uploaded InvariantMind-v1 to Hugging Face!")
+    print(f"🎉 Successfully uploaded {args.repo_id} to Hugging Face!")
     print(f"🔗 View your model: https://huggingface.co/{args.repo_id}")
     print("====================================================================")
 
 if __name__ == "__main__":
     main()
+
