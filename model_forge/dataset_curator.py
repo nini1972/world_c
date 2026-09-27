@@ -30,7 +30,7 @@ class DatasetCurator:
                     "conversations": [
                         {
                             "from": "human",
-                            "value": f"Implement a numerical simulation script in {ep.source_world} to investigate the following physical/dynamical dynamics for lineage {ep.lineage}."
+                            "value": f"Implement a numerical simulation script in {ep.source_world} to investigate complex physical/dynamical dynamics for lineage {ep.lineage}."
                         },
                         {
                             "from": "gpt",
@@ -48,6 +48,23 @@ class DatasetCurator:
                         {
                             "from": "human",
                             "value": f"Review empirical evidence from the colony and formulate a formal {ep.category} evaluating the universality or falsification of proposed dynamical laws."
+                        },
+                        {
+                            "from": "gpt",
+                            "value": ep.content
+                        }
+                    ],
+                    "metadata": ep.metadata
+                }
+                records.append(record)
+            elif ep.category == "hypothesis":
+                record = {
+                    "id": ep.episode_id,
+                    "system": SYSTEM_PROMPT,
+                    "conversations": [
+                        {
+                            "from": "human",
+                            "value": f"Formulate a precise mathematical hypothesis or empirical investigation in {ep.source_world} (lineage: {ep.lineage})."
                         },
                         {
                             "from": "gpt",
@@ -76,9 +93,27 @@ class DatasetCurator:
                 records.append(record)
         return records
 
+    def curate_dpo_pairs(self, episodes: List[ScientificEpisode]) -> List[Dict[str, Any]]:
+        """Extracts Direct Preference Optimization (DPO) pairs from peer-verified vs refuted claims."""
+        dpo_pairs = []
+        for ep in episodes:
+            meta = ep.metadata
+            verdicts = meta.get("verdicts", [])
+            # If the episode represents an Epistemic DAG node with multi-family verification
+            if "refute" in verdicts and "endorse" in verdicts:
+                dpo_pairs.append({
+                    "id": f"dpo_{ep.episode_id}",
+                    "prompt": f"Evaluate the proposed dynamical invariance or scaling claim: {meta.get('node_id')}",
+                    "chosen": f"Endorsed Resolution: {ep.content[:1500]}",
+                    "rejected": f"Refuted Preliminary Claim (Spurious or Scale-Dependent): The claim failed replication under independent multi-model quorum testing.",
+                    "metadata": meta
+                })
+        return dpo_pairs
+
     def export_jsonl(self, records: List[Dict[str, Any]], filename: str = "colony_sft_dataset.jsonl") -> str:
         out_path = os.path.join(self.output_dir, filename)
         with open(out_path, "w", encoding="utf-8") as f:
             for rec in records:
                 f.write(json.dumps(rec) + "\n")
         return out_path
+
