@@ -1,0 +1,8 @@
+{
+  "job_id": "job_demo_kuramoto_sweep",
+  "title": "High-Resolution Kuramoto Criticality Sweep",
+  "lineage_author": "cartographer",
+  "realm_source": "world_c",
+  "entrypoint": "../../demo_sweep.py",
+  "timeout_seconds": 600
+}
