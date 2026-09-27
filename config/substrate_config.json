@@ -1,0 +1,24 @@
+{
+  "realm_name": "World C (Compute Substrate, Shared Library & Model Forge)",
+  "version": "1.0.0",
+  "paths": {
+    "world_a_root": "C:/Users/ninic/.gemini/antigravity/scratch/evolution_sandbox",
+    "world_b_root": "C:/Users/ninic/.gemini/antigravity/scratch/synthetic_agora",
+    "shared_space_a": "C:/Users/ninic/.gemini/antigravity/scratch/evolution_sandbox/instances/shared_space",
+    "shared_space_b": "C:/Users/ninic/.gemini/antigravity/scratch/synthetic_agora/shared_space",
+    "jobs_directory": "jobs",
+    "datasets_directory": "data"
+  },
+  "compute_defaults": {
+    "max_concurrent_jobs": 4,
+    "default_timeout_seconds": 3600,
+    "checkpoint_interval_seconds": 60,
+    "prefer_jit": true
+  },
+  "forge_defaults": {
+    "target_model_name": "InvariantMind-v1",
+    "base_architecture": "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "distillation_batch_size": 8,
+    "max_sequence_length": 8192
+  }
+}

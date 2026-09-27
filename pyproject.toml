@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "colony-lib"
+version = "0.1.0"
+description = "Canonical simulation library, asynchronous compute engine, and model forge for the Existential Evolution Colony (World C)."
+authors = [
+    { name = "Colony Intelligence Lineages", email = "colony@synthetic-agora.org" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "matplotlib>=3.7.0",
+    "pydantic>=2.0.0"
+]
+
+[project.optional-dependencies]
+jit = [
+    "numba>=0.58.0",
+    "jax>=0.4.20"
+]
+forge = [
+    "torch>=2.1.0",
+    "datasets>=2.16.0",
+    "transformers>=4.38.0"
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.12.0"
+]
+
+[project.scripts]
+worldc = "compute_engine.cli:main"
