@@ -101,7 +101,7 @@ def main():
     # 2. Write custom Model Card README
     readme_path = os.path.join(args.adapter_dir, "README.md")
     with open(readme_path, "w", encoding="utf-8") as f:
-        f.write(MODEL_CARD.format(repo_id=args.repo_id))
+        f.write(MODEL_CARD.replace("{repo_id}", args.repo_id))
     print("Generated Model Card (README.md)")
 
     # 3. Upload all files from adapter_dir
