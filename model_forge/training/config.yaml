@@ -1,0 +1,63 @@
+# InvariantMind-v1 Cloud Training Configuration
+# Two-Tier Neural Cognitive Architecture:
+# - Tier 1 (Oracle): DeepSeek-R1-Distill-Qwen-14B (World-Level Synthesis & Formal Proofs)
+# - Tier 2 (Worker): Qwen/Qwen2.5-Coder-7B-Instruct (Tool-Calling, Simulation, & Vectorized Math)
+
+oracle_model:
+  base_model: "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
+  output_dir: "./checkpoints/invariant_mind_oracle_14b"
+  max_seq_length: 4096
+  learning_rate: 1.5e-4
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  optim: "paged_adamw_8bit"
+  warmup_ratio: 0.05
+  lr_scheduler_type: "cosine"
+  weight_decay: 0.01
+  logging_steps: 10
+  save_strategy: "epoch"
+
+worker_model:
+  base_model: "Qwen/Qwen2.5-Coder-7B-Instruct"
+  output_dir: "./checkpoints/invariant_mind_worker_7b"
+  max_seq_length: 4096
+  learning_rate: 2.0e-4
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  optim: "paged_adamw_8bit"
+  warmup_ratio: 0.05
+  lr_scheduler_type: "cosine"
+  weight_decay: 0.01
+  logging_steps: 10
+  save_strategy: "epoch"
+
+# LoRA / PEFT Parameters
+peft:
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+# Quantization (bitsandbytes QLoRA)
+quantization:
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: "bfloat16"
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+
+# Dataset Paths
+datasets:
+  sft_dataset: "data/colony_training_set_v2_full.jsonl"
+  dpo_dataset: "data/colony_dpo_pairs_v1.jsonl"
+  eval_split_ratio: 0.05
