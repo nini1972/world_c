@@ -22,6 +22,7 @@ class JobSpec:
     lineage_author: str = "anonymous"
     realm_source: str = "world_a"
     entrypoint: str = "main.py"
+    script_content: str = ""
     arguments: List[str] = field(default_factory=list)
     parameters: Dict[str, Any] = field(default_factory=dict)
     timeout_seconds: int = 3600

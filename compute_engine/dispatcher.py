@@ -25,6 +25,13 @@ class ComputeDispatcher:
         job_dir = self._get_job_dir(spec.job_id)
         os.makedirs(job_dir, exist_ok=True)
         
+        # If script_content is provided directly, write entrypoint.py
+        if getattr(spec, "script_content", ""):
+            entry_path = os.path.join(job_dir, "entrypoint.py")
+            with open(entry_path, "w", encoding="utf-8") as f:
+                f.write(spec.script_content)
+            spec.entrypoint = "entrypoint.py"
+            
         spec_path = os.path.join(job_dir, "spec.json")
         with open(spec_path, "w", encoding="utf-8") as f:
             json.dump(spec.__dict__, f, indent=2)
@@ -32,6 +39,65 @@ class ComputeDispatcher:
         result = JobResult(job_id=spec.job_id, status=JobStatus.QUEUED)
         self._save_result(result)
         return spec.job_id
+
+    def execute_async(self, job_id: str) -> subprocess.Popen:
+        """Spawns an independent background worker to execute the job and auto-publish artifacts."""
+        worker_code = f"""
+import sys, os, json
+_dll_handle = None
+if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
+    _dll_dir = os.path.join(sys.base_prefix, 'DLLs')
+    if os.path.exists(_dll_dir):
+        try:
+            _dll_handle = os.add_dll_directory(_dll_dir)
+        except Exception:
+            pass
+root_dir = {repr(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))}
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+from compute_engine.dispatcher import ComputeDispatcher
+from compute_engine.job_spec import JobSpec
+from embassy.bridge import EmbassyBridge
+
+job_dir = {repr(self._get_job_dir(job_id))}
+dispatcher = ComputeDispatcher(base_jobs_dir={repr(self.base_jobs_dir)})
+res = dispatcher.execute_sync({repr(job_id)})
+
+try:
+    bridge = EmbassyBridge(world_c_root=root_dir)
+    spec_path = os.path.join(job_dir, "spec.json")
+    with open(spec_path, "r", encoding="utf-8") as f:
+        spec_data = json.load(f)
+    realm = spec_data.get("realm_source", "world_a")
+    bridge.publish_completed_artifacts({repr(job_id)}, target_realms=[realm])
+    inbox = os.path.join(bridge.world_a_root, "instances", "shared_space") if realm == "world_a" else os.path.join(bridge.world_b_root, "instances", "shared_agora")
+    bridge.write_completion_report(res, JobSpec(**spec_data), destination_dir=inbox)
+except Exception as err:
+    print(f"Error publishing artifacts: {{err}}")
+"""
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        env = os.environ.copy()
+        env["PYTHONPATH"] = root_dir + os.pathsep + env.get("PYTHONPATH", "")
+        dll_dir = os.path.join(sys.base_prefix, "DLLs")
+        # Remove any gstreamer path that clashes with standard python ctypes/ffi
+        path_parts = [p for p in env.get("PATH", "").split(os.pathsep) if "gstreamer" not in p.lower()]
+        env["PATH"] = dll_dir + os.pathsep + sys.base_prefix + os.pathsep + os.pathsep.join(path_parts)
+        
+        flags = 0
+        if sys.platform == "win32":
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP
+            
+        worker_log = os.path.join(self._get_job_dir(job_id), "worker.log")
+        w_out = open(worker_log, "w", encoding="utf-8")
+        p = subprocess.Popen(
+            [sys.executable, "-c", worker_code],
+            cwd=self._get_job_dir(job_id),
+            env=env,
+            stdout=w_out,
+            stderr=w_out,
+            creationflags=flags
+        )
+        return p
 
     def execute_sync(self, job_id: str) -> JobResult:
         """Executes a queued job synchronously (useful for local workers / tests)."""
@@ -53,9 +119,12 @@ class ComputeDispatcher:
         cmd = [sys.executable, spec.entrypoint] + spec.arguments
         env = os.environ.copy()
         env.update(spec.env_vars)
-        # Ensure world_c root is in PYTHONPATH
+        # Ensure world_c root is in PYTHONPATH and Python DLLs are prioritized
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         env["PYTHONPATH"] = root_dir + os.pathsep + env.get("PYTHONPATH", "")
+        dll_dir = os.path.join(sys.base_prefix, "DLLs")
+        path_parts = [p for p in env.get("PATH", "").split(os.pathsep) if "gstreamer" not in p.lower()]
+        env["PATH"] = dll_dir + os.pathsep + sys.base_prefix + os.pathsep + os.pathsep.join(path_parts)
         
         try:
             with open(log_out_path, "w", encoding="utf-8") as f_out, \

@@ -33,7 +33,6 @@ config/.env
 # Temporary artifacts & outputs
 data/*.h5
 data/*.zarr
-jobs/*/artifacts/*
-jobs/*/raw_output/
+jobs/
 *.log
 .pytest_cache/
