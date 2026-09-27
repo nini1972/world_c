@@ -14,13 +14,8 @@ echo "===================================================================="
 nvidia-smi
 
 # 1. Install Dependencies
-echo "Installing PyTorch, Hugging Face transformers, PEFT, TRL, bitsandbytes..."
-pip install --upgrade pip
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-pip install transformers datasets accelerate peft trl bitsandbytes pyyaml tensorboard scipy matplotlib
-
-# Optional flash-attention if supported
-pip install flash-attn --no-build-isolation || echo "Flash attention optional, proceeding with standard SDPA."
+echo "Ensuring Hugging Face transformers, PEFT, TRL, bitsandbytes are installed..."
+pip install --upgrade transformers datasets accelerate peft trl bitsandbytes pyyaml tensorboard scipy matplotlib
 
 # 2. Verify Dataset
 if [ ! -f "../../data/colony_training_set_v2_full.jsonl" ]; then

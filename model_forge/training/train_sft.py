@@ -96,14 +96,21 @@ def main():
     )
     
     # 3. Model Loading
+    compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     print(f"Loading {base_model_name} in 4-bit NF4 precision...")
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model_name,
-        quantization_config=bnb_cfg,
-        device_map="auto",
-        trust_remote_code=True,
-        torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    )
+    import inspect
+    model_init_sig = inspect.signature(AutoModelForCausalLM.from_pretrained)
+    model_kwargs = {
+        "quantization_config": bnb_cfg,
+        "device_map": "auto",
+        "trust_remote_code": True,
+    }
+    if "dtype" in model_init_sig.parameters:
+        model_kwargs["dtype"] = compute_dtype
+    else:
+        model_kwargs["torch_dtype"] = compute_dtype
+
+    model = AutoModelForCausalLM.from_pretrained(base_model_name, **model_kwargs)
     model = prepare_model_for_kbit_training(model)
     
     # 4. LoRA Setup
@@ -124,40 +131,68 @@ def main():
     train_data = split_dataset["train"]
     eval_data = split_dataset["test"]
     print(f"Training split: {len(train_data)} | Validation split: {len(eval_data)}")
+
+    # Pre-render chat templates into a robust 'text' column
+    print("Formatting dialogue trajectories with chat template...")
+    def format_chat(batch):
+        return {"text": [tokenizer.apply_chat_template(m, tokenize=False) for m in batch["messages"]]}
     
-    # 6. Training Arguments
-    training_args = TrainingArguments(
-        output_dir=output_dir,
-        per_device_train_batch_size=model_cfg["per_device_train_batch_size"],
-        gradient_accumulation_steps=model_cfg["gradient_accumulation_steps"],
-        learning_rate=float(model_cfg["learning_rate"]),
-        num_train_epochs=model_cfg["num_train_epochs"],
-        lr_scheduler_type=model_cfg["lr_scheduler_type"],
-        warmup_ratio=model_cfg["warmup_ratio"],
-        optim=model_cfg["optim"],
-        logging_steps=model_cfg["logging_steps"],
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        save_total_limit=2,
-        bf16=torch.cuda.is_bf16_supported(),
-        fp16=not torch.cuda.is_bf16_supported(),
-        gradient_checkpointing=True,
-        report_to=["tensorboard"],
-        push_to_hub=args.push_to_hub,
-        hub_model_id=args.hub_model_id
-    )
+    train_data = train_data.map(format_chat, batched=True)
+    eval_data = eval_data.map(format_chat, batched=True)
+    
+    # 6. Training Arguments (Dynamically filtered for version tolerance)
+    arg_sig = inspect.signature(TrainingArguments.__init__)
+    training_kwargs = {
+        "output_dir": output_dir,
+        "per_device_train_batch_size": model_cfg["per_device_train_batch_size"],
+        "gradient_accumulation_steps": model_cfg["gradient_accumulation_steps"],
+        "learning_rate": float(model_cfg["learning_rate"]),
+        "num_train_epochs": model_cfg["num_train_epochs"],
+        "lr_scheduler_type": model_cfg["lr_scheduler_type"],
+        "optim": model_cfg["optim"],
+        "logging_steps": model_cfg["logging_steps"],
+        "save_strategy": "epoch",
+        "save_total_limit": 2,
+        "bf16": torch.cuda.is_bf16_supported(),
+        "fp16": not torch.cuda.is_bf16_supported(),
+        "gradient_checkpointing": True,
+        "report_to": ["tensorboard"],
+        "push_to_hub": args.push_to_hub,
+        "hub_model_id": args.hub_model_id
+    }
+    
+    if "eval_strategy" in arg_sig.parameters:
+        training_kwargs["eval_strategy"] = "epoch"
+    elif "evaluation_strategy" in arg_sig.parameters:
+        training_kwargs["evaluation_strategy"] = "epoch"
+        
+    if "warmup_ratio" in arg_sig.parameters:
+        training_kwargs["warmup_ratio"] = float(model_cfg.get("warmup_ratio", 0.05))
+    elif "warmup_steps" in arg_sig.parameters:
+        training_kwargs["warmup_steps"] = float(model_cfg.get("warmup_ratio", 0.05))
+        
+    filtered_args = {k: v for k, v in training_kwargs.items() if k in arg_sig.parameters}
+    training_args = TrainingArguments(**filtered_args)
     
     # 7. SFT Trainer
-    trainer = SFTTrainer(
-        model=model,
-        train_dataset=train_data,
-        eval_dataset=eval_data,
-        peft_config=peft_cfg,
-        max_seq_length=model_cfg["max_seq_length"],
-        formatting_func=lambda ex: [tokenizer.apply_chat_template(m, tokenize=False) for m in ex["messages"]],
-        tokenizer=tokenizer,
-        args=training_args
-    )
+    sft_sig = inspect.signature(SFTTrainer.__init__)
+    sft_kwargs = {
+        "model": model,
+        "train_dataset": train_data,
+        "eval_dataset": eval_data,
+        "peft_config": peft_cfg,
+        "args": training_args,
+    }
+    if "dataset_text_field" in sft_sig.parameters:
+        sft_kwargs["dataset_text_field"] = "text"
+    if "max_seq_length" in sft_sig.parameters:
+        sft_kwargs["max_seq_length"] = model_cfg["max_seq_length"]
+    if "tokenizer" in sft_sig.parameters:
+        sft_kwargs["tokenizer"] = tokenizer
+    elif "processing_class" in sft_sig.parameters:
+        sft_kwargs["processing_class"] = tokenizer
+
+    trainer = SFTTrainer(**sft_kwargs)
     
     print("Training initiated...")
     trainer.train()

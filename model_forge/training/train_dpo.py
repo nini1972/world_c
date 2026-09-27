@@ -55,41 +55,62 @@ def main():
     )
     
     # Load base model + SFT adapter
-    base_model = AutoModelForCausalLM.from_pretrained(
-        args.base_model,
-        quantization_config=bnb_cfg,
-        device_map="auto",
-        trust_remote_code=True
-    )
+    import inspect
+    compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    model_init_sig = inspect.signature(AutoModelForCausalLM.from_pretrained)
+    model_kwargs = {
+        "quantization_config": bnb_cfg,
+        "device_map": "auto",
+        "trust_remote_code": True,
+    }
+    if "dtype" in model_init_sig.parameters:
+        model_kwargs["dtype"] = compute_dtype
+    else:
+        model_kwargs["torch_dtype"] = compute_dtype
+
+    base_model = AutoModelForCausalLM.from_pretrained(args.base_model, **model_kwargs)
     model = PeftModel.from_pretrained(base_model, args.adapter_path, is_trainable=True)
     
     dataset = load_dpo_dataset(args.dpo_data)
     print(f"Loaded {len(dataset)} preference pairs.")
     
-    training_args = TrainingArguments(
-        output_dir=args.output_dir,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=8,
-        learning_rate=5e-5,
-        num_train_epochs=2,
-        lr_scheduler_type="cosine",
-        warmup_ratio=0.1,
-        logging_steps=5,
-        bf16=torch.cuda.is_bf16_supported(),
-        save_strategy="epoch",
-        gradient_checkpointing=True
-    )
+    arg_sig = inspect.signature(TrainingArguments.__init__)
+    training_kwargs = {
+        "output_dir": args.output_dir,
+        "per_device_train_batch_size": 1,
+        "gradient_accumulation_steps": 8,
+        "learning_rate": 5e-5,
+        "num_train_epochs": 2,
+        "lr_scheduler_type": "cosine",
+        "logging_steps": 5,
+        "bf16": torch.cuda.is_bf16_supported(),
+        "save_strategy": "epoch",
+        "gradient_checkpointing": True
+    }
+    if "warmup_ratio" in arg_sig.parameters:
+        training_kwargs["warmup_ratio"] = 0.1
+    elif "warmup_steps" in arg_sig.parameters:
+        training_kwargs["warmup_steps"] = 0.1
+        
+    filtered_args = {k: v for k, v in training_kwargs.items() if k in arg_sig.parameters}
+    training_args = TrainingArguments(**filtered_args)
     
-    dpo_trainer = DPOTrainer(
-        model=model,
-        ref_model=None, # PEFT handles reference model automatically
-        args=training_args,
-        beta=0.1,
-        train_dataset=dataset,
-        tokenizer=tokenizer,
-        max_length=2048,
-        max_prompt_length=1024
-    )
+    dpo_sig = inspect.signature(DPOTrainer.__init__)
+    dpo_kwargs = {
+        "model": model,
+        "ref_model": None,
+        "args": training_args,
+        "beta": 0.1,
+        "train_dataset": dataset,
+        "max_length": 2048,
+        "max_prompt_length": 1024
+    }
+    if "tokenizer" in dpo_sig.parameters:
+        dpo_kwargs["tokenizer"] = tokenizer
+    elif "processing_class" in dpo_sig.parameters:
+        dpo_kwargs["processing_class"] = tokenizer
+
+    dpo_trainer = DPOTrainer(**dpo_kwargs)
     
     dpo_trainer.train()
     dpo_trainer.model.save_pretrained(args.output_dir)
