@@ -151,3 +151,60 @@ def simulate_kuramoto(
         "steady_std_r": std_r,
         "susceptibility": susceptibility
     }
+
+def vectorized_kuramoto(
+    N: Optional[int] = None,
+    n_oscillators: Optional[int] = None,
+    K: float = 2.0,
+    omega: Optional[np.ndarray] = None,
+    natural_frequencies: Optional[np.ndarray] = None,
+    t_transient: float = 200.0,
+    t_measure: float = 800.0,
+    t_max: Optional[float] = None,
+    dt: float = 0.05,
+    coupling_matrix: Optional[np.ndarray] = None,
+    seed: Optional[int] = 42
+) -> Dict[str, Any]:
+    """
+    High-performance vectorized Kuramoto simulation matching agent expectations.
+    Returns dictionary with 'R' (steady-state time series), 'r_series' (full series),
+    'mean_R', and 'var_R'.
+    """
+    n = N if N is not None else (n_oscillators or 100)
+    freqs = omega if omega is not None else natural_frequencies
+    total_time = t_max if t_max is not None else (t_transient + t_measure)
+    
+    ensemble = KuramotoEnsemble(
+        n_oscillators=n,
+        natural_frequencies=freqs,
+        coupling_matrix=coupling_matrix,
+        seed=seed
+    )
+    
+    n_steps = max(1, int(total_time / dt))
+    n_trans = int(t_transient / dt)
+    r_series = np.zeros(n_steps, dtype=np.float64)
+    
+    for step in range(n_steps):
+        r, _ = compute_order_parameter(ensemble.theta)
+        r_series[step] = r
+        ensemble.step_rk4(K, dt)
+        
+    steady_r = r_series[n_trans:] if n_trans < n_steps else r_series
+    mean_r = float(np.mean(steady_r)) if len(steady_r) > 0 else 0.0
+    var_r = float(np.var(steady_r)) if len(steady_r) > 0 else 0.0
+    std_r = float(np.std(steady_r)) if len(steady_r) > 0 else 0.0
+    susceptibility = float(n * var_r)
+    
+    return {
+        "N": n,
+        "K": K,
+        "R": steady_r,
+        "r_series": r_series,
+        "mean_R": mean_r,
+        "var_R": var_r,
+        "steady_mean_r": mean_r,
+        "steady_std_r": std_r,
+        "susceptibility": susceptibility
+    }
+
