@@ -78,6 +78,8 @@ except Exception as err:
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         env = os.environ.copy()
         env["PYTHONPATH"] = root_dir + os.pathsep + env.get("PYTHONPATH", "")
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         dll_dir = os.path.join(sys.base_prefix, "DLLs")
         # Remove any gstreamer path that clashes with standard python ctypes/ffi
         path_parts = [p for p in env.get("PATH", "").split(os.pathsep) if "gstreamer" not in p.lower()]
@@ -122,6 +124,8 @@ except Exception as err:
         # Ensure world_c root is in PYTHONPATH and Python DLLs are prioritized
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         env["PYTHONPATH"] = root_dir + os.pathsep + env.get("PYTHONPATH", "")
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
         dll_dir = os.path.join(sys.base_prefix, "DLLs")
         path_parts = [p for p in env.get("PATH", "").split(os.pathsep) if "gstreamer" not in p.lower()]
         env["PATH"] = dll_dir + os.pathsep + sys.base_prefix + os.pathsep + os.pathsep.join(path_parts)
