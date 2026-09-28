@@ -16,6 +16,16 @@ from typing import Dict, Any, List, Optional
 from compute_engine.job_spec import JobSpec, JobStatus, JobResult
 from compute_engine.dispatcher import ComputeDispatcher
 
+def safe_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs)
+    except UnicodeEncodeError:
+        safe_args = [
+            arg.encode("ascii", errors="replace").decode("ascii") if isinstance(arg, str) else arg
+            for arg in args
+        ]
+        print(*safe_args, **kwargs)
+
 class EmbassyBridge:
     def __init__(
         self,
@@ -87,7 +97,7 @@ class EmbassyBridge:
                             
                         spec = JobSpec(**data)
                         jid = self.dispatcher.submit(spec)
-                        print(f"[Embassy Bridge] Received job '{jid}' ('{spec.title}') from {realm_name} ({spec.lineage_author})")
+                        safe_print(f"[Embassy Bridge] Received job '{jid}' ('{spec.title}') from {realm_name} ({spec.lineage_author})")
                         
                         # Archive request
                         processed_file = full_p + ".processed"
@@ -99,11 +109,11 @@ class EmbassyBridge:
                         
                         if auto_execute:
                             if async_mode:
-                                print(f"[Embassy Bridge] Dispatching '{jid}' asynchronously in World C...")
+                                safe_print(f"[Embassy Bridge] Dispatching '{jid}' asynchronously in World C...")
                                 self.dispatcher.execute_async(jid)
                                 record["status"] = "DISPATCHED_ASYNC"
                             else:
-                                print(f"[Embassy Bridge] Executing '{jid}' synchronously in World C...")
+                                safe_print(f"[Embassy Bridge] Executing '{jid}' synchronously in World C...")
                                 res = self.dispatcher.execute_sync(jid)
                                 record["status"] = res.status.value
                                 record["result"] = res.to_dict()
@@ -113,7 +123,7 @@ class EmbassyBridge:
                                 
                         results.append(record)
                     except Exception as e:
-                        print(f"[Embassy Bridge] Error processing {fname}: {e}")
+                        safe_print(f"[Embassy Bridge] Error processing {fname}: {e}")
                         
         return results
 
@@ -138,7 +148,7 @@ class EmbassyBridge:
                 if os.path.exists(src_art):
                     dst_art = os.path.join(dest, f"world_c_{job_id}_{os.path.basename(art)}")
                     shutil.copyfile(src_art, dst_art)
-                    print(f"[Embassy Bridge] Published artifact to {dst_art}")
+                    safe_print(f"[Embassy Bridge] Published artifact to {dst_art}")
 
     def write_completion_report(self, result: JobResult, spec: JobSpec, destination_dir: str):
         """Generates a detailed markdown report for the calling realm."""
@@ -176,18 +186,18 @@ class EmbassyBridge:
 """
         with open(report_file, "w", encoding="utf-8") as f:
             f.write(content)
-        print(f"[Embassy Bridge] Saved execution report: {report_file}")
+        safe_print(f"[Embassy Bridge] Saved execution report: {report_file}")
 
     def watch(self, poll_interval: float = 5.0):
         """Continuous polling daemon watching for job requests across all worlds."""
-        print(f"[Embassy Bridge Daemon] Watching for jobs across World A and World B (interval: {poll_interval}s)...")
-        print("Press Ctrl+C to stop.")
+        safe_print(f"[Embassy Bridge Daemon] Watching for jobs across World A and World B (interval: {poll_interval}s)...")
+        safe_print("Press Ctrl+C to stop.")
         try:
             while True:
                 self.scan_and_process_inbox(auto_execute=True, async_mode=False)
                 time.sleep(poll_interval)
         except KeyboardInterrupt:
-            print("\n[Embassy Bridge Daemon] Stopped.")
+            safe_print("\n[Embassy Bridge Daemon] Stopped.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="World C Embassy Bridge")
