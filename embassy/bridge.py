@@ -146,6 +146,10 @@ class EmbassyBridge:
         
         art_list = "\n".join([f"- `world_c_{result.job_id}_{os.path.basename(a)}`" for a in result.artifacts_generated]) or "*(None)*"
         
+        err_block = ""
+        if result.stderr_tail.strip():
+            err_block = f"### Errors / Warnings:\n```\n{result.stderr_tail.strip()}\n```"
+            
         content = f"""# 🏛️ World C Execution Report: {spec.title}
 
 * **Job ID:** `{result.job_id}`
@@ -165,7 +169,7 @@ class EmbassyBridge:
 {result.stdout_tail.strip()}
 ```
 
-{f"### Errors / Warnings:\n```\n{result.stderr_tail.strip()}\n```" if result.stderr_tail.strip() else ""}
+{err_block}
 
 ---
 *Published autonomously by World C Embassy Bridge.*
