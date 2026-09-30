@@ -94,3 +94,59 @@ def test_invariant_registry(tmp_path):
     # Verify reproducibility check
     assert registry.verify_reproducibility("LAW-KURAMOTO-KC", {"K_c": 2.01}, tolerance=0.05) is True
     assert registry.verify_reproducibility("LAW-KURAMOTO-KC", {"K_c": 3.50}, tolerance=0.05) is False
+
+def test_gaussian_process_surrogate():
+    from colony_lib.emulators import GaussianProcessSurrogate
+    
+    # Simple synthetic 1D function: y = sin(2 * pi * x)
+    X = np.linspace(0, 1, 8)
+    y = np.sin(2 * np.pi * X)
+    
+    gp = GaussianProcessSurrogate(kernel_type="matern")
+    gp.fit(X, y)
+    
+    X_test = np.linspace(0, 1, 25)
+    mean, std = gp.predict(X_test, return_std=True)
+    assert len(mean) == 25
+    assert len(std) == 25
+    assert np.all(std >= 0)
+    
+    # Active learning sample suggestion
+    candidates = np.linspace(0, 1, 50)
+    next_pts = gp.suggest_next_samples(candidates, n_samples=3)
+    assert len(next_pts) == 3
+    
+    # Boundary check
+    crit = gp.find_critical_boundary(candidates, threshold=0.0)
+    assert len(crit["boundary_points"]) > 0
+
+def test_turing_instability_analysis():
+    from colony_lib.dynamics import turing_dispersion_relation, check_turing_conditions
+    
+    # Classic Schnakenberg/Turing parameters: Du=1, Dv=20, standard activator-inhibitor Jacobian
+    Du = 1.0
+    Dv = 20.0
+    J = np.array([
+        [1.0, -2.0],
+        [3.0, -4.0]
+    ])
+    
+    info = check_turing_conditions(Du, Dv, J)
+    assert info["condition_1_trace_negative"] is True
+    assert info["condition_2_det_positive"] is True
+    
+    k_vals = np.linspace(0, 2.0, 30)
+    disp = turing_dispersion_relation(k_vals, Du, Dv, J)
+    assert len(disp) == 30
+
+def test_lenia_continuous_cellular_automata():
+    from colony_lib.dynamics import Lenia2D
+    
+    lenia = Lenia2D(grid_size=32, kernel_radius=5)
+    lenia.seed_orbium()
+    assert np.sum(lenia.state) > 0.0
+    
+    metrics = lenia.run(steps=5)
+    assert metrics["final_mass"] >= 0.0
+    assert len(metrics["mass_trajectory"]) == 5
+    assert 0.0 <= metrics["active_area_fraction"] <= 1.0

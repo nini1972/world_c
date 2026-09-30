@@ -20,10 +20,12 @@ from . import dynamics
 from . import bifurcation
 from . import recurrence
 from . import invariants
+from . import emulators
 
 __all__ = [
     "dynamics",
     "bifurcation",
     "recurrence",
     "invariants",
+    "emulators",
 ]
