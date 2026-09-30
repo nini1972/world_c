@@ -69,7 +69,8 @@ try:
     with open(spec_path, "r", encoding="utf-8") as f:
         spec_data = json.load(f)
     realm = spec_data.get("realm_source", "world_a")
-    bridge.publish_completed_artifacts({repr(job_id)}, target_realms=[realm])
+    author = spec_data.get("lineage_author")
+    bridge.publish_completed_artifacts({repr(job_id)}, target_realms=[realm], lineage_author=author)
     inbox = os.path.join(bridge.world_a_root, "instances", "shared_space") if realm == "world_a" else os.path.join(bridge.world_b_root, "instances", "shared_agora")
     bridge.write_completion_report(res, JobSpec(**spec_data), destination_dir=inbox)
 except Exception as err:

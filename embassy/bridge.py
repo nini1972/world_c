@@ -53,12 +53,20 @@ class EmbassyBridge:
                 "inbox": os.path.join(self.world_a_root, "instances", "shared_space")
             },
             {
+                "realm": "world_a",
+                "inbox": os.path.join(self.world_a_root, "instances", "shared_space", "world_c", "requests")
+            },
+            {
                 "realm": "world_b",
                 "inbox": os.path.join(self.world_b_root, "shared_space")
             },
             {
                 "realm": "world_b",
                 "inbox": os.path.join(self.world_b_root, "instances", "shared_agora")
+            },
+            {
+                "realm": "world_b",
+                "inbox": os.path.join(self.world_b_root, "instances", "shared_agora", "world_c", "requests")
             }
         ]
 
@@ -118,7 +126,7 @@ class EmbassyBridge:
                                 record["status"] = res.status.value
                                 record["result"] = res.to_dict()
                                 # Publish artifacts back to calling realm
-                                self.publish_completed_artifacts(jid, target_realms=[realm_name])
+                                self.publish_completed_artifacts(jid, target_realms=[realm_name], lineage_author=spec.lineage_author)
                                 self.write_completion_report(res, spec, destination_dir=inbox_path)
                                 
                         results.append(record)
@@ -127,21 +135,44 @@ class EmbassyBridge:
                         
         return results
 
-    def publish_completed_artifacts(self, job_id: str, target_realms: List[str]):
-        """Copies generated artifacts of a finished job back to requested realms' shared spaces."""
+    def publish_completed_artifacts(
+        self,
+        job_id: str,
+        target_realms: List[str],
+        lineage_author: Optional[str] = None
+    ):
+        """Copies generated artifacts of a finished job back to dedicated world_c directories and agent workspaces."""
         result = self.dispatcher.get_result(job_id)
         if not result or not result.artifacts_generated:
             return
             
         job_dir = os.path.join(self.world_c_root, "jobs", job_id)
-        destinations = []
+        shared_destinations = []
+        workspace_destinations = []
+
         if "world_a" in target_realms and os.path.exists(self.world_a_root):
-            destinations.append(os.path.join(self.world_a_root, "instances", "shared_space"))
+            # 1. Dedicated World C artifacts directory (analogous to embassy/inbox)
+            shared_destinations.append(os.path.join(self.world_a_root, "instances", "shared_space", "world_c", "artifacts"))
+            # 2. Top-level shared_space for backwards compatibility
+            shared_destinations.append(os.path.join(self.world_a_root, "instances", "shared_space"))
+            # 3. Direct delivery to requesting author's workspace
+            if lineage_author:
+                author_ws = os.path.join(self.world_a_root, "instances", lineage_author, "agent_workspace", "world_c_results")
+                workspace_destinations.append(author_ws)
+
         if "world_b" in target_realms and os.path.exists(self.world_b_root):
-            destinations.append(os.path.join(self.world_b_root, "shared_space"))
-            destinations.append(os.path.join(self.world_b_root, "instances", "shared_agora"))
+            # 1. Dedicated World C artifacts directory
+            shared_destinations.append(os.path.join(self.world_b_root, "instances", "shared_agora", "world_c", "artifacts"))
+            # 2. Top-level shared space for backwards compatibility
+            shared_destinations.append(os.path.join(self.world_b_root, "shared_space"))
+            shared_destinations.append(os.path.join(self.world_b_root, "instances", "shared_agora"))
+            # 3. Direct delivery to requesting author's workspace
+            if lineage_author:
+                author_ws = os.path.join(self.world_b_root, "instances", lineage_author, "agent_workspace", "world_c_results")
+                workspace_destinations.append(author_ws)
             
-        for dest in destinations:
+        # Copy to shared destinations with world_c_{job_id}_ prefix
+        for dest in shared_destinations:
             os.makedirs(dest, exist_ok=True)
             for art in result.artifacts_generated:
                 src_art = os.path.join(job_dir, art)
@@ -150,10 +181,27 @@ class EmbassyBridge:
                     shutil.copyfile(src_art, dst_art)
                     safe_print(f"[Embassy Bridge] Published artifact to {dst_art}")
 
-    def write_completion_report(self, result: JobResult, spec: JobSpec, destination_dir: str):
-        """Generates a detailed markdown report for the calling realm."""
-        report_file = os.path.join(destination_dir, f"world_c_{result.job_id}_REPORT.md")
-        
+        # Copy to author's workspace with both clean name and prefixed name
+        for ws_dest in workspace_destinations:
+            os.makedirs(ws_dest, exist_ok=True)
+            for art in result.artifacts_generated:
+                src_art = os.path.join(job_dir, art)
+                if os.path.exists(src_art):
+                    # Clean filename (e.g. plot.png)
+                    dst_clean = os.path.join(ws_dest, os.path.basename(art))
+                    shutil.copyfile(src_art, dst_clean)
+                    # Prefixed filename
+                    dst_pref = os.path.join(ws_dest, f"world_c_{job_id}_{os.path.basename(art)}")
+                    shutil.copyfile(src_art, dst_pref)
+                    safe_print(f"[Embassy Bridge] Delivered artifact to author workspace: {dst_clean}")
+
+    def write_completion_report(
+        self,
+        result: JobResult,
+        spec: JobSpec,
+        destination_dir: Optional[str] = None
+    ):
+        """Generates a detailed markdown report for the calling realm in dedicated and author directories."""
         art_list = "\n".join([f"- `world_c_{result.job_id}_{os.path.basename(a)}`" for a in result.artifacts_generated]) or "*(None)*"
         
         err_block = ""
@@ -184,9 +232,36 @@ class EmbassyBridge:
 ---
 *Published autonomously by World C Embassy Bridge.*
 """
-        with open(report_file, "w", encoding="utf-8") as f:
-            f.write(content)
-        safe_print(f"[Embassy Bridge] Saved execution report: {report_file}")
+        report_filename = f"world_c_{result.job_id}_REPORT.md"
+        target_dirs = []
+        if destination_dir:
+            target_dirs.append(destination_dir)
+
+        # Dedicated reports directory
+        realm = getattr(spec, "realm_source", "world_a")
+        author = getattr(spec, "lineage_author", None)
+
+        if realm == "world_a" and os.path.exists(self.world_a_root):
+            target_dirs.append(os.path.join(self.world_a_root, "instances", "shared_space", "world_c", "reports"))
+            if author:
+                target_dirs.append(os.path.join(self.world_a_root, "instances", author, "agent_workspace", "world_c_results"))
+        elif realm == "world_b" and os.path.exists(self.world_b_root):
+            target_dirs.append(os.path.join(self.world_b_root, "instances", "shared_agora", "world_c", "reports"))
+            if author:
+                target_dirs.append(os.path.join(self.world_b_root, "instances", author, "agent_workspace", "world_c_results"))
+
+        for tdir in set(target_dirs):
+            os.makedirs(tdir, exist_ok=True)
+            report_file = os.path.join(tdir, report_filename)
+            with open(report_file, "w", encoding="utf-8") as f:
+                f.write(content)
+            safe_print(f"[Embassy Bridge] Saved execution report: {report_file}")
+            
+            # If writing into the author's local workspace, also save as REPORT.md for effortless reading
+            if "agent_workspace" in tdir:
+                ws_simple = os.path.join(tdir, "REPORT.md")
+                with open(ws_simple, "w", encoding="utf-8") as f:
+                    f.write(content)
 
     def watch(self, poll_interval: float = 5.0):
         """Continuous polling daemon watching for job requests across all worlds."""
