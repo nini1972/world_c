@@ -36,14 +36,47 @@ class EmbassyBridge:
         self.world_c_root = world_c_root or os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..")
         )
-        self.world_a_root = world_a_root or os.path.abspath(
-            os.path.join(self.world_c_root, "..", "evolution_sandbox")
-        )
-        self.world_b_root = world_b_root or os.path.abspath(
-            os.path.join(self.world_c_root, "..", "synthetic_agora")
-        )
+
+        # 1. Resolve world_a_root (Evolution Sandbox)
+        if world_a_root and os.path.exists(world_a_root):
+            self.world_a_root = os.path.abspath(world_a_root)
+        elif os.getenv("WORLD_A_ROOT") and os.path.exists(os.getenv("WORLD_A_ROOT")):
+            self.world_a_root = os.path.abspath(os.getenv("WORLD_A_ROOT"))
+        else:
+            parent = os.path.abspath(os.path.join(self.world_c_root, ".."))
+            if os.path.exists(os.path.join(parent, "instances", "shared_space")):
+                self.world_a_root = parent
+            elif os.path.exists(os.path.join(parent, "evolution_sandbox", "instances", "shared_space")):
+                self.world_a_root = os.path.abspath(os.path.join(parent, "evolution_sandbox"))
+            elif os.path.exists(os.path.join(parent, "evolution_sandbox")):
+                self.world_a_root = os.path.abspath(os.path.join(parent, "evolution_sandbox"))
+            elif os.path.exists(r"C:\Users\ninic\.gemini\antigravity\scratch\evolution_sandbox"):
+                self.world_a_root = r"C:\Users\ninic\.gemini\antigravity\scratch\evolution_sandbox"
+            else:
+                self.world_a_root = os.path.abspath(os.path.join(parent, "evolution_sandbox"))
+
+        # 2. Resolve world_b_root (Synthetic Agora)
+        if world_b_root and os.path.exists(world_b_root):
+            self.world_b_root = os.path.abspath(world_b_root)
+        elif os.getenv("WORLD_B_ROOT") and os.path.exists(os.getenv("WORLD_B_ROOT")):
+            self.world_b_root = os.path.abspath(os.getenv("WORLD_B_ROOT"))
+        else:
+            parent = os.path.abspath(os.path.join(self.world_c_root, ".."))
+            if os.path.exists(os.path.join(parent, "instances", "shared_agora")) or os.path.exists(os.path.join(parent, "shared_space", "embassy")):
+                self.world_b_root = parent
+            elif os.path.exists(os.path.join(parent, "synthetic_agora", "instances", "shared_agora")):
+                self.world_b_root = os.path.abspath(os.path.join(parent, "synthetic_agora"))
+            elif os.path.exists(os.path.join(parent, "synthetic_agora")):
+                self.world_b_root = os.path.abspath(os.path.join(parent, "synthetic_agora"))
+            elif os.path.exists(r"C:\Users\ninic\.gemini\antigravity\scratch\synthetic_agora"):
+                self.world_b_root = r"C:\Users\ninic\.gemini\antigravity\scratch\synthetic_agora"
+            else:
+                self.world_b_root = os.path.abspath(os.path.join(parent, "synthetic_agora"))
+
         self.dispatcher = ComputeDispatcher(
-            base_jobs_dir=os.path.join(self.world_c_root, "jobs")
+            base_jobs_dir=os.path.join(self.world_c_root, "jobs"),
+            world_a_root=self.world_a_root,
+            world_b_root=self.world_b_root
         )
 
     def get_inbox_paths(self) -> List[Dict[str, str]]:
@@ -262,6 +295,53 @@ class EmbassyBridge:
                 ws_simple = os.path.join(tdir, "REPORT.md")
                 with open(ws_simple, "w", encoding="utf-8") as f:
                     f.write(content)
+
+    def reconcile_active_jobs(self, timeout: float = 60.0) -> List[Dict[str, Any]]:
+        """
+        Reconciles background asynchronous jobs: waits for running jobs up to `timeout`,
+        and ensures that reports and artifacts are published back to their requesting realms.
+        """
+        reconciled = []
+        jobs_dir = os.path.join(self.world_c_root, "jobs")
+        if not os.path.exists(jobs_dir):
+            return reconciled
+            
+        start_wait = time.time()
+        for jid in os.listdir(jobs_dir):
+            jdir = os.path.join(jobs_dir, jid)
+            if not os.path.isdir(jdir):
+                continue
+            res_file = os.path.join(jdir, "result.json")
+            spec_file = os.path.join(jdir, "spec.json")
+            if not os.path.exists(spec_file):
+                continue
+                
+            try:
+                with open(spec_file, "r", encoding="utf-8") as f:
+                    spec_data = json.load(f)
+                spec = JobSpec(**spec_data)
+                
+                # If running, wait briefly up to remaining timeout
+                while os.path.exists(res_file):
+                    res = self.dispatcher.get_result(jid)
+                    if res and res.status == JobStatus.RUNNING:
+                        if (time.time() - start_wait) < timeout:
+                            time.sleep(1.0)
+                            continue
+                    break
+                    
+                res = self.dispatcher.get_result(jid)
+                if res and res.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
+                    realm = getattr(spec, "realm_source", "world_a")
+                    author = getattr(spec, "lineage_author", None)
+                    self.publish_completed_artifacts(jid, target_realms=[realm], lineage_author=author)
+                    inbox = os.path.join(self.world_a_root, "instances", "shared_space") if realm == "world_a" else os.path.join(self.world_b_root, "instances", "shared_agora")
+                    self.write_completion_report(res, spec, destination_dir=inbox)
+                    reconciled.append({"job_id": jid, "status": res.status.value, "title": spec.title})
+            except Exception as e:
+                safe_print(f"[Embassy Bridge] Error reconciling {jid}: {e}")
+                
+        return reconciled
 
     def watch(self, poll_interval: float = 5.0):
         """Continuous polling daemon watching for job requests across all worlds."""

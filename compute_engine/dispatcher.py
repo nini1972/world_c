@@ -12,10 +12,17 @@ from typing import Dict, Any, List, Optional
 from .job_spec import JobSpec, JobStatus, JobResult
 
 class ComputeDispatcher:
-    def __init__(self, base_jobs_dir: str = "jobs"):
+    def __init__(
+        self,
+        base_jobs_dir: str = "jobs",
+        world_a_root: Optional[str] = None,
+        world_b_root: Optional[str] = None
+    ):
         self.base_jobs_dir = os.path.abspath(base_jobs_dir)
         os.makedirs(self.base_jobs_dir, exist_ok=True)
         self.registry_file = os.path.join(self.base_jobs_dir, "jobs_index.json")
+        self.world_a_root = os.path.abspath(world_a_root) if world_a_root else None
+        self.world_b_root = os.path.abspath(world_b_root) if world_b_root else None
 
     def _get_job_dir(self, job_id: str) -> str:
         return os.path.join(self.base_jobs_dir, job_id)
@@ -60,11 +67,19 @@ from compute_engine.job_spec import JobSpec
 from embassy.bridge import EmbassyBridge
 
 job_dir = {repr(self._get_job_dir(job_id))}
-dispatcher = ComputeDispatcher(base_jobs_dir={repr(self.base_jobs_dir)})
+dispatcher = ComputeDispatcher(
+    base_jobs_dir={repr(self.base_jobs_dir)},
+    world_a_root={repr(self.world_a_root)},
+    world_b_root={repr(self.world_b_root)}
+)
 res = dispatcher.execute_sync({repr(job_id)})
 
 try:
-    bridge = EmbassyBridge(world_c_root=root_dir)
+    bridge = EmbassyBridge(
+        world_c_root=root_dir,
+        world_a_root={repr(self.world_a_root)},
+        world_b_root={repr(self.world_b_root)}
+    )
     spec_path = os.path.join(job_dir, "spec.json")
     with open(spec_path, "r", encoding="utf-8") as f:
         spec_data = json.load(f)
@@ -78,6 +93,10 @@ except Exception as err:
 """
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         env = os.environ.copy()
+        if self.world_a_root:
+            env["WORLD_A_ROOT"] = self.world_a_root
+        if self.world_b_root:
+            env["WORLD_B_ROOT"] = self.world_b_root
         env["PYTHONPATH"] = root_dir + os.pathsep + env.get("PYTHONPATH", "")
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
