@@ -91,10 +91,6 @@ class EmbassyBridge:
             },
             {
                 "realm": "world_b",
-                "inbox": os.path.join(self.world_b_root, "shared_space")
-            },
-            {
-                "realm": "world_b",
                 "inbox": os.path.join(self.world_b_root, "instances", "shared_agora")
             },
             {
@@ -196,8 +192,7 @@ class EmbassyBridge:
         if "world_b" in target_realms and os.path.exists(self.world_b_root):
             # 1. Dedicated World C artifacts directory
             shared_destinations.append(os.path.join(self.world_b_root, "instances", "shared_agora", "world_c", "artifacts"))
-            # 2. Top-level shared space for backwards compatibility
-            shared_destinations.append(os.path.join(self.world_b_root, "shared_space"))
+            # 2. Top-level shared agora
             shared_destinations.append(os.path.join(self.world_b_root, "instances", "shared_agora"))
             # 3. Direct delivery to requesting author's workspace
             if lineage_author:

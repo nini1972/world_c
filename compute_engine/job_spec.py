@@ -31,6 +31,16 @@ class JobSpec:
     output_artifacts: List[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
+    def __post_init__(self):
+        try:
+            self.timeout_seconds = int(self.timeout_seconds)
+        except (ValueError, TypeError):
+            self.timeout_seconds = 3600
+        try:
+            self.checkpoint_interval_seconds = int(self.checkpoint_interval_seconds)
+        except (ValueError, TypeError):
+            self.checkpoint_interval_seconds = 60
+
 @dataclass
 class JobResult:
     job_id: str
