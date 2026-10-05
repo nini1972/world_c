@@ -156,7 +156,7 @@ class EmbassyBridge:
                                 record["result"] = res.to_dict()
                                 # Publish artifacts back to calling realm
                                 self.publish_completed_artifacts(jid, target_realms=[realm_name], lineage_author=spec.lineage_author)
-                                self.write_completion_report(res, spec, destination_dir=inbox_path)
+                                self.write_completion_report(res, spec)
                                 
                         results.append(record)
                     except Exception as e:
@@ -182,9 +182,7 @@ class EmbassyBridge:
         if "world_a" in target_realms and os.path.exists(self.world_a_root):
             # 1. Dedicated World C artifacts directory (analogous to embassy/inbox)
             shared_destinations.append(os.path.join(self.world_a_root, "instances", "shared_space", "world_c", "artifacts"))
-            # 2. Top-level shared_space for backwards compatibility
-            shared_destinations.append(os.path.join(self.world_a_root, "instances", "shared_space"))
-            # 3. Direct delivery to requesting author's workspace
+            # 2. Direct delivery to requesting author's workspace
             if lineage_author:
                 author_ws = os.path.join(self.world_a_root, "instances", lineage_author, "agent_workspace", "world_c_results")
                 workspace_destinations.append(author_ws)
@@ -192,9 +190,7 @@ class EmbassyBridge:
         if "world_b" in target_realms and os.path.exists(self.world_b_root):
             # 1. Dedicated World C artifacts directory
             shared_destinations.append(os.path.join(self.world_b_root, "instances", "shared_agora", "world_c", "artifacts"))
-            # 2. Top-level shared agora
-            shared_destinations.append(os.path.join(self.world_b_root, "instances", "shared_agora"))
-            # 3. Direct delivery to requesting author's workspace
+            # 2. Direct delivery to requesting author's workspace
             if lineage_author:
                 author_ws = os.path.join(self.world_b_root, "instances", lineage_author, "agent_workspace", "world_c_results")
                 workspace_destinations.append(author_ws)
@@ -330,8 +326,7 @@ class EmbassyBridge:
                     realm = getattr(spec, "realm_source", "world_a")
                     author = getattr(spec, "lineage_author", None)
                     self.publish_completed_artifacts(jid, target_realms=[realm], lineage_author=author)
-                    inbox = os.path.join(self.world_a_root, "instances", "shared_space") if realm == "world_a" else os.path.join(self.world_b_root, "instances", "shared_agora")
-                    self.write_completion_report(res, spec, destination_dir=inbox)
+                    self.write_completion_report(res, spec)
                     reconciled.append({"job_id": jid, "status": res.status.value, "title": spec.title})
             except Exception as e:
                 safe_print(f"[Embassy Bridge] Error reconciling {jid}: {e}")
