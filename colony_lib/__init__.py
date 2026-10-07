@@ -21,6 +21,7 @@ from . import bifurcation
 from . import recurrence
 from . import invariants
 from . import emulators
+from . import datasets
 
 __all__ = [
     "dynamics",
@@ -28,4 +29,5 @@ __all__ = [
     "recurrence",
     "invariants",
     "emulators",
+    "datasets",
 ]
