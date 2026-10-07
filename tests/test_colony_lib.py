@@ -68,6 +68,19 @@ def test_bifurcation_tools():
     nf = classify_bifurcation_1d(a0_mu=0.0, a1_mu=1.0, a2=0.0, a3=-1.0)
     assert nf["type"] == "pitchfork_supercritical"
 
+def test_scan_parameter_space():
+    from colony_lib.bifurcation import scan_parameter_space
+    
+    # 1D scan
+    res_1d = scan_parameter_space(lambda x: {"sq": x**2}, [1.0, 2.0, 3.0])
+    assert "sq" in res_1d
+    assert np.allclose(res_1d["sq"], [1.0, 4.0, 9.0])
+    
+    # Grid scan
+    res_2d = scan_parameter_space(lambda a, b: {"sum": a + b}, param_grid={"a": [1.0, 2.0], "b": [10.0, 20.0]})
+    assert "sum" in res_2d
+    assert len(res_2d["sum"]) == 4
+
 def test_invariant_registry(tmp_path):
     reg_file = str(tmp_path / "test_reg.json")
     registry = InvariantRegistry(registry_file=reg_file)

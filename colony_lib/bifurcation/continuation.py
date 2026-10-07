@@ -28,6 +28,65 @@ def parameter_sweep_scan(
         
     return aggregated
 
+def scan_parameter_space(
+    eval_fn: Callable[..., Any],
+    param_grid: Any = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Evaluates a function across a 1D parameter array or multi-dimensional parameter space grid.
+    Aliases parameter_sweep_scan for 1D arrays or iterates over Cartesian product of parameter grids.
+    """
+    import itertools
+    
+    # Handle direct 1D array passed as first argument after eval_fn
+    if param_grid is not None and isinstance(param_grid, (list, tuple, np.ndarray)):
+        return parameter_sweep_scan(eval_fn, np.asarray(param_grid))
+        
+    # Handle param_grid passed as dict
+    if isinstance(param_grid, dict):
+        grid_dict = param_grid
+    elif kwargs:
+        grid_dict = kwargs
+    else:
+        return {}
+        
+    # Check if single 1D param in dict
+    if len(grid_dict) == 1 and ("param_values" in grid_dict or "param" in grid_dict):
+        p_val = list(grid_dict.values())[0]
+        return parameter_sweep_scan(eval_fn, np.asarray(p_val))
+        
+    keys = list(grid_dict.keys())
+    values = [np.asarray(grid_dict[k]) for k in keys]
+    grid_points = list(itertools.product(*values))
+    
+    results: Dict[str, List[Any]] = {k: [] for k in keys}
+    out_records: Dict[str, List[Any]] = {}
+    
+    for pt in grid_points:
+        for idx, k in enumerate(keys):
+            results[k].append(pt[idx])
+        kw = {keys[i]: pt[i] for i in range(len(keys))}
+        try:
+            out = eval_fn(**kw)
+        except TypeError:
+            out = eval_fn(*pt)
+            
+        if isinstance(out, dict):
+            for ok, ov in out.items():
+                if ok not in out_records:
+                    out_records[ok] = []
+                out_records[ok].append(ov)
+        else:
+            if "output" not in out_records:
+                out_records["output"] = []
+            out_records["output"].append(out)
+            
+    aggregated = {k: np.array(v) for k, v in results.items()}
+    for ok, ov in out_records.items():
+        aggregated[ok] = np.array(ov)
+    return aggregated
+
 def detect_critical_point(
     param_values: np.ndarray,
     susceptibility: np.ndarray
