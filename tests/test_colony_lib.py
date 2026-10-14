@@ -175,3 +175,22 @@ def test_betti0_persistence_imports():
     res = bp_inv(pts, epsilons=np.array([0.1, 1.0, 5.0]))
     assert len(res["betti_0"]) == 3
 
+def test_cml_and_gray_scott_jit():
+    from colony_lib.dynamics.cml import coupled_logistic_map, simulate_coupled_logistic_map
+    from colony_lib.dynamics.gray_scott import GrayScott2D, simulate_gray_scott
+    
+    # 1. Test CML single step and trajectory
+    x0 = np.array([0.2, 0.4, 0.6, 0.8])
+    x1 = coupled_logistic_map(x0, r=3.865, eps=0.132)
+    assert len(x1) == 4
+    assert np.all(x1 >= 0.0) and np.all(x1 <= 1.0)
+    
+    traj = simulate_coupled_logistic_map(N=30, steps=50, r=3.865, eps=0.132, seed=42)
+    assert traj.shape == (50, 30)
+    
+    # 2. Test Gray-Scott integration
+    res = simulate_gray_scott(grid_size=32, steps=100, seed=42)
+    assert res["v_field"].shape == (32, 32)
+    assert res["mean_v"] >= 0.0
+
+

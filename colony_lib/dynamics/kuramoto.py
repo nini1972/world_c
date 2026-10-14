@@ -38,6 +38,61 @@ def _kuramoto_rhs_matrix(theta: np.ndarray, omega: np.ndarray, A: np.ndarray, K:
         dtheta[i] += (K / N) * s
     return dtheta
 
+@njit(fastmath=True)
+def _simulate_kuramoto_all_to_all_jit(
+    theta_init: np.ndarray,
+    omega: np.ndarray,
+    K: float,
+    dt: float,
+    steps: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compiled multi-step RK4 integration for all-to-all Kuramoto ensemble."""
+    N = len(theta_init)
+    r_series = np.empty(steps, dtype=np.float64)
+    th = np.copy(theta_init)
+    
+    for s in range(steps):
+        cos_sum = np.sum(np.cos(th))
+        sin_sum = np.sum(np.sin(th))
+        r = np.sqrt(cos_sum * cos_sum + sin_sum * sin_sum) / N
+        r_series[s] = r
+        
+        k1 = _kuramoto_rhs_all_to_all(th, omega, K, N)
+        k2 = _kuramoto_rhs_all_to_all(th + 0.5 * dt * k1, omega, K, N)
+        k3 = _kuramoto_rhs_all_to_all(th + 0.5 * dt * k2, omega, K, N)
+        k4 = _kuramoto_rhs_all_to_all(th + dt * k3, omega, K, N)
+        th = (th + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4))
+        
+    return th, r_series
+
+@njit(fastmath=True)
+def _simulate_kuramoto_matrix_jit(
+    theta_init: np.ndarray,
+    omega: np.ndarray,
+    A: np.ndarray,
+    K: float,
+    dt: float,
+    steps: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compiled multi-step RK4 integration for arbitrary topology network matrix."""
+    N = len(theta_init)
+    r_series = np.empty(steps, dtype=np.float64)
+    th = np.copy(theta_init)
+    
+    for s in range(steps):
+        cos_sum = np.sum(np.cos(th))
+        sin_sum = np.sum(np.sin(th))
+        r = np.sqrt(cos_sum * cos_sum + sin_sum * sin_sum) / N
+        r_series[s] = r
+        
+        k1 = _kuramoto_rhs_matrix(th, omega, A, K, N)
+        k2 = _kuramoto_rhs_matrix(th + 0.5 * dt * k1, omega, A, K, N)
+        k3 = _kuramoto_rhs_matrix(th + 0.5 * dt * k2, omega, A, K, N)
+        k4 = _kuramoto_rhs_matrix(th + dt * k3, omega, A, K, N)
+        th = (th + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4))
+        
+    return th, r_series
+
 def compute_order_parameter(theta: np.ndarray) -> Tuple[float, float]:
     """
     Computes global Kuramoto order parameter r and mean phase psi:
@@ -128,12 +183,22 @@ def simulate_kuramoto(
     n_transient = int(n_steps * transient_fraction)
     
     times = np.linspace(0, t_max, n_steps)
-    r_series = np.zeros(n_steps, dtype=np.float64)
     
-    for step in range(n_steps):
-        r, _ = compute_order_parameter(ensemble.theta)
-        r_series[step] = r
-        ensemble.step_rk4(K, dt)
+    if _HAS_NUMBA:
+        if ensemble.A is None:
+            ensemble.theta, r_series = _simulate_kuramoto_all_to_all_jit(
+                ensemble.theta, ensemble.omega, K, dt, n_steps
+            )
+        else:
+            ensemble.theta, r_series = _simulate_kuramoto_matrix_jit(
+                ensemble.theta, ensemble.omega, ensemble.A, K, dt, n_steps
+            )
+    else:
+        r_series = np.zeros(n_steps, dtype=np.float64)
+        for step in range(n_steps):
+            r, _ = compute_order_parameter(ensemble.theta)
+            r_series[step] = r
+            ensemble.step_rk4(K, dt)
         
     steady_r = r_series[n_transient:]
     mean_r = float(np.mean(steady_r))
