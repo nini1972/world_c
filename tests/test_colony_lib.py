@@ -163,3 +163,15 @@ def test_lenia_continuous_cellular_automata():
     assert metrics["final_mass"] >= 0.0
     assert len(metrics["mass_trajectory"]) == 5
     assert 0.0 <= metrics["active_area_fraction"] <= 1.0
+
+def test_betti0_persistence_imports():
+    from colony_lib.invariants import betti0_persistence as bp_inv
+    from colony_lib.morphospace import betti0_persistence as bp_morph, compute_betti_0_curve
+    
+    assert bp_inv is compute_betti_0_curve
+    assert bp_morph is compute_betti_0_curve
+    
+    pts = np.random.RandomState(42).randn(10, 2)
+    res = bp_inv(pts, epsilons=np.array([0.1, 1.0, 5.0]))
+    assert len(res["betti_0"]) == 3
+
