@@ -22,6 +22,7 @@ from . import recurrence
 from . import invariants
 from . import emulators
 from . import datasets
+from . import scaling
 
 __all__ = [
     "dynamics",
@@ -30,4 +31,5 @@ __all__ = [
     "invariants",
     "emulators",
     "datasets",
+    "scaling",
 ]
