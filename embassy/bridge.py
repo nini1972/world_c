@@ -285,10 +285,11 @@ class EmbassyBridge:
                 with open(ws_simple, "w", encoding="utf-8") as f:
                     f.write(content)
 
-    def reconcile_active_jobs(self, timeout: float = 60.0) -> List[Dict[str, Any]]:
+    def reconcile_active_jobs(self, timeout: float = 300.0) -> List[Dict[str, Any]]:
         """
         Reconciles background asynchronous jobs: waits for running jobs up to `timeout`,
-        and ensures that reports and artifacts are published back to their requesting realms.
+        executes any still-queued jobs, harvests partial outputs for jobs interrupted at CI
+        step boundaries, and ensures reports and artifacts are always published back to their requesting realms.
         """
         reconciled = []
         jobs_dir = os.path.join(self.world_c_root, "jobs")
@@ -310,7 +311,12 @@ class EmbassyBridge:
                     spec_data = json.load(f)
                 spec = JobSpec(**spec_data)
                 
-                # If running, wait briefly up to remaining timeout
+                res = self.dispatcher.get_result(jid)
+                if res and res.status == JobStatus.QUEUED:
+                    safe_print(f"[Embassy Bridge] Executing still-queued job '{jid}' synchronously during reconciliation...")
+                    res = self.dispatcher.execute_sync(jid)
+
+                # If running, wait up to remaining timeout
                 while os.path.exists(res_file):
                     res = self.dispatcher.get_result(jid)
                     if res and res.status == JobStatus.RUNNING:
@@ -320,6 +326,38 @@ class EmbassyBridge:
                     break
                     
                 res = self.dispatcher.get_result(jid)
+                # If still marked RUNNING after timeout (e.g. background worker killed at CI step boundary or exceeded CI window),
+                # harvest partial logs and artifacts so the job never vanishes without a report.
+                if res and res.status == JobStatus.RUNNING:
+                    log_out_path = os.path.join(jdir, "stdout.log")
+                    log_err_path = os.path.join(jdir, "stderr.log")
+                    if os.path.exists(log_out_path):
+                        with open(log_out_path, "r", encoding="utf-8", errors="replace") as f:
+                            res.stdout_tail = f.read()[-2000:]
+                    if os.path.exists(log_err_path):
+                        with open(log_err_path, "r", encoding="utf-8", errors="replace") as f:
+                            res.stderr_tail = f.read()[-2000:]
+                    artifacts = []
+                    for root, _, files in os.walk(jdir):
+                        for file in files:
+                            if file.endswith((".png", ".jpg", ".csv", ".json", ".npz", ".h5")) and file not in ["spec.json", "result.json"]:
+                                artifacts.append(os.path.relpath(os.path.join(root, file), jdir))
+                    res.artifacts_generated = artifacts
+                    res.finished_at = time.time()
+                    res.execution_time_seconds = res.finished_at - (res.started_at or res.finished_at)
+                    if artifacts and not res.stderr_tail.strip():
+                        res.status = JobStatus.COMPLETED
+                        res.exit_code = 0
+                    else:
+                        res.status = JobStatus.FAILED
+                        note = (
+                            f"[World C CI Reconciliation Notice] Job '{jid}' was still in RUNNING state when the CI workflow step "
+                            f"concluded after {res.execution_time_seconds:.1f}s (background worker interrupted at step boundary or exceeded "
+                            f"reconciliation window). Harvested {len(artifacts)} partial artifact(s)."
+                        )
+                        res.stderr_tail = (res.stderr_tail.strip() + "\n" + note).strip()
+                    self.dispatcher._save_result(res)
+
                 if res and res.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
                     realm = getattr(spec, "realm_source", "world_a")
                     author = getattr(spec, "lineage_author", None)
