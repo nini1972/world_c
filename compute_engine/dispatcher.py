@@ -31,12 +31,16 @@ class ComputeDispatcher:
         """Sets up job workspace and persists spec."""
         job_dir = self._get_job_dir(spec.job_id)
         os.makedirs(job_dir, exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "world_c_results"), exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "workspace"), exist_ok=True)
         
         # If script_content is provided directly, write entrypoint.py
         if getattr(spec, "script_content", ""):
+            # Rewrite absolute '/workspace/' paths to relative './' so containerized assumptions work natively
+            cleaned_script = spec.script_content.replace("'/workspace/", "'./").replace('"/workspace/', '"./')
             entry_path = os.path.join(job_dir, "entrypoint.py")
             with open(entry_path, "w", encoding="utf-8") as f:
-                f.write(spec.script_content)
+                f.write(cleaned_script)
             spec.entrypoint = "entrypoint.py"
             
         spec_path = os.path.join(job_dir, "spec.json")

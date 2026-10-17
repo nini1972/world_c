@@ -230,7 +230,7 @@ class EmbassyBridge:
         
         err_block = ""
         if result.stderr_tail.strip():
-            err_block = f"### Errors / Warnings:\n```\n{result.stderr_tail.strip()}\n```"
+            err_block = f"### ⚠️ Errors / Warnings:\n```\n{result.stderr_tail.strip()}\n```\n\n---\n"
             
         content = f"""# 🏛️ World C Execution Report: {spec.title}
 
@@ -246,12 +246,10 @@ class EmbassyBridge:
 
 ---
 
-## 📋 Execution Log Tail
+{err_block}## 📋 Execution Log Tail
 ```
 {result.stdout_tail.strip()}
 ```
-
-{err_block}
 
 ---
 *Published autonomously by World C Embassy Bridge.*

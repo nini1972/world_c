@@ -7,6 +7,24 @@ __version__ = "0.1.0"
 
 import os
 import sys
+import json
+import numpy as np
+
+_ORIG_JSON_DEFAULT = json.JSONEncoder.default
+
+def _numpy_safe_json_default(self, obj):
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return _ORIG_JSON_DEFAULT(self, obj)
+
+json.JSONEncoder.default = _numpy_safe_json_default
+
 _DLL_HANDLE = None
 if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
     _dll_dir = os.path.join(sys.base_prefix, "DLLs")
