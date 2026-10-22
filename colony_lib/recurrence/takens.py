@@ -29,11 +29,21 @@ def estimate_delay_autocorr(series: np.ndarray, max_lag: int = 100) -> int:
         
     return 1
 
-def takens_embedding(series: np.ndarray, m: int = 3, tau: int = 1) -> np.ndarray:
+def takens_embedding(series: np.ndarray, m: int = 3, tau: int = 1, dim: int = None, delay: int = None, **kwargs) -> np.ndarray:
     """
     Constructs m-dimensional Takens embedding with delay tau.
+    Accepts 'dim' / 'embedding_dimension' as aliases for 'm', and 'delay' / 'time_delay' as aliases for 'tau'.
     Returns array of shape (N - (m-1)*tau, m).
     """
+    if dim is not None:
+        m = int(dim)
+    elif "embedding_dimension" in kwargs and kwargs["embedding_dimension"] is not None:
+        m = int(kwargs["embedding_dimension"])
+    if delay is not None:
+        tau = int(delay)
+    elif "time_delay" in kwargs and kwargs["time_delay"] is not None:
+        tau = int(kwargs["time_delay"])
+    series = np.asarray(series)
     n = len(series)
     n_vectors = n - (m - 1) * tau
     if n_vectors <= 0:

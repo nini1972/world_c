@@ -118,5 +118,60 @@ def compute_rqa_metrics(
         "laminarity": lam,
         "shannon_entropy": entr,
         "mean_diag_length": mean_diag,
-        "max_diag_length": max_diag
+        "max_diag_length": max_diag,
+        "RR": rr,
+        "DET": det,
+        "LAM": lam,
+        "ENT": entr,
+        "ENTR": entr,
+        "L": mean_diag,
+        "Lmax": max_diag,
     }
+
+
+class RecurrencePlot:
+    """Ergonomic OOP wrapper for Takens embedding + pairwise distance / recurrence matrix."""
+    def __init__(self, series: np.ndarray, dim: int = 2, tau: int = 1, m: Optional[int] = None, epsilon: Optional[float] = None, **kwargs):
+        from .takens import takens_embedding
+        embed_m = int(m) if m is not None else int(dim)
+        arr = np.asarray(series, dtype=float)
+        self.embedded = takens_embedding(arr, m=embed_m, tau=int(tau)) if (arr.ndim == 1 and embed_m > 1) else (arr[:, None] if arr.ndim == 1 else arr)
+        self.distance_matrix = squareform(pdist(self.embedded, metric=kwargs.get("metric", "euclidean")))
+        self.epsilon = float(epsilon) if epsilon is not None else float(0.1 * np.mean(self.distance_matrix) if self.distance_matrix.size else 0.1)
+
+    def recurrence_matrix(self, epsilon: Optional[float] = None) -> np.ndarray:
+        eps = float(epsilon) if epsilon is not None else self.epsilon
+        return (self.distance_matrix <= eps).astype(np.uint8)
+
+
+class RecurrenceQuantificationAnalysis:
+    """Ergonomic OOP wrapper around compute_rqa_metrics."""
+    def __init__(self, rp_or_matrix, epsilon: Optional[float] = None, **kwargs):
+        if isinstance(rp_or_matrix, RecurrencePlot):
+            R = rp_or_matrix.recurrence_matrix(epsilon=epsilon)
+        else:
+            arr = np.asarray(rp_or_matrix)
+            if epsilon is not None and arr.dtype.kind == "f":
+                R = (arr <= float(epsilon)).astype(np.uint8)
+            else:
+                R = arr.astype(np.uint8)
+        self.R = R
+        self.metrics = compute_rqa_metrics(R, **kwargs)
+
+    def recurrence_rate(self) -> float:
+        return self.metrics["recurrence_rate"]
+
+    def determinism(self) -> float:
+        return self.metrics["determinism"]
+
+    def laminarity(self) -> float:
+        return self.metrics["laminarity"]
+
+    def mean_diagonal_length(self) -> float:
+        return self.metrics["mean_diag_length"]
+
+    def max_diagonal_length(self) -> float:
+        return self.metrics["max_diag_length"]
+
+    def shannon_entropy_diagonal_lines(self) -> float:
+        return self.metrics["shannon_entropy"]

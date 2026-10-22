@@ -11,7 +11,11 @@ from .lenia import Lenia2D
 from .contact_process import contact_process, simulate_contact_process
 from .cml import coupled_logistic_map, simulate_coupled_logistic_map
 
-# Compatibility aliases
+# Compatibility aliases & scalar maps
+def logistic_map(x, r: float = 3.9):
+    """Standard logistic map x_{n+1} = r * x * (1 - x)."""
+    return r * x * (1.0 - x)
+
 kuramoto_dynamics = simulate_kuramoto
 gray_scott_step = simulate_gray_scott
 
@@ -34,6 +38,7 @@ __all__ = [
     "Lenia2D",
     "contact_process",
     "simulate_contact_process",
+    "logistic_map",
     "coupled_logistic_map",
     "simulate_coupled_logistic_map",
 ]
