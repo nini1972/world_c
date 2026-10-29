@@ -24,6 +24,8 @@ try:
         return _orig_default(self, obj)
 
     json.JSONEncoder.default = _safe_numpy_default
+    if not hasattr(np, 'trapz') and hasattr(np, 'trapezoid'):
+        np.trapz = np.trapezoid
 except Exception:
     pass
 

@@ -213,6 +213,10 @@ def simulate_kuramoto(
         "times": times,
         "r_series": r_series,
         "steady_mean_r": mean_r,
+        "steady_state_order_parameter": mean_r,
+        "order_parameter": mean_r,
+        "mean_R": mean_r,
+        "R": steady_r,
         "steady_std_r": std_r,
         "susceptibility": susceptibility
     }
