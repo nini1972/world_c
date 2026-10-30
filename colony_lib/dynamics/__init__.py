@@ -8,6 +8,7 @@ from .gray_scott import GrayScott2D, simulate_gray_scott
 from .integrators import rk4_step, velocity_verlet_step, euler_maruyama_step
 from .turing import turing_dispersion_relation, check_turing_conditions
 from .lenia import Lenia2D
+LeniaAutomata = Lenia2D
 from .contact_process import contact_process, simulate_contact_process
 from .cml import coupled_logistic_map, simulate_coupled_logistic_map
 
@@ -36,6 +37,7 @@ __all__ = [
     "turing_dispersion_relation",
     "check_turing_conditions",
     "Lenia2D",
+    "LeniaAutomata",
     "contact_process",
     "simulate_contact_process",
     "logistic_map",
