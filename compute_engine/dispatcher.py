@@ -34,14 +34,25 @@ class ComputeDispatcher:
         os.makedirs(os.path.join(job_dir, "world_c_results"), exist_ok=True)
         os.makedirs(os.path.join(job_dir, "workspace"), exist_ok=True)
         
-        # If script_content is provided directly, write entrypoint.py
+        # If script_content is provided directly, write entrypoint.py (or entrypoint.sh if bash script)
         if getattr(spec, "script_content", ""):
             # Rewrite absolute '/workspace/' paths to relative './' so containerized assumptions work natively
             cleaned_script = spec.script_content.replace("'/workspace/", "'./").replace('"/workspace/', '"./')
-            entry_path = os.path.join(job_dir, "entrypoint.py")
-            with open(entry_path, "w", encoding="utf-8") as f:
+            first_line = cleaned_script.lstrip().splitlines()[0] if cleaned_script.lstrip() else ""
+            is_shell = first_line.startswith(("#!/bin/bash", "#!/usr/bin/env bash", "#!/bin/sh", "#!/usr/bin/env sh"))
+            if not is_shell and cleaned_script.lstrip():
+                import ast
+                try:
+                    ast.parse(cleaned_script)
+                except SyntaxError:
+                    # Check for obvious shell idioms when shebang was omitted
+                    if any(line.strip().startswith(("set -e", "export ", "cp ", "md5sum ")) for line in cleaned_script.splitlines()[:10]):
+                        is_shell = True
+            entry_filename = "entrypoint.sh" if is_shell else "entrypoint.py"
+            entry_path = os.path.join(job_dir, entry_filename)
+            with open(entry_path, "w", encoding="utf-8", newline="\n" if is_shell else None) as f:
                 f.write(cleaned_script)
-            spec.entrypoint = "entrypoint.py"
+            spec.entrypoint = entry_filename
             
         spec_path = os.path.join(job_dir, "spec.json")
         with open(spec_path, "w", encoding="utf-8") as f:
@@ -141,7 +152,10 @@ except Exception as err:
         log_out_path = os.path.join(job_dir, "stdout.log")
         log_err_path = os.path.join(job_dir, "stderr.log")
         
-        cmd = [sys.executable, spec.entrypoint] + spec.arguments
+        if spec.entrypoint.endswith(".sh"):
+            cmd = ["bash", spec.entrypoint] + spec.arguments
+        else:
+            cmd = [sys.executable, spec.entrypoint] + spec.arguments
         env = os.environ.copy()
         env.update(spec.env_vars)
         # Ensure world_c root is in PYTHONPATH and Python DLLs are prioritized
