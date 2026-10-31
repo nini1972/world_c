@@ -284,6 +284,74 @@ class EmbassyBridge:
                 ws_simple = os.path.join(tdir, "REPORT.md")
                 with open(ws_simple, "w", encoding="utf-8") as f:
                     f.write(content)
+                self._update_research_log(result, spec, tdir)
+
+    def _update_research_log(
+        self,
+        result: JobResult,
+        spec: JobSpec,
+        workspace_results_dir: str
+    ):
+        """
+        Automatically catalogs each completed World C job and its artifacts in the author's
+        local research_log.json with semantic tags ('phase-diagram', 'topology-comparison', 'scaling-law', etc.).
+        """
+        text_blob = (
+            f"{getattr(spec, 'title', '')} "
+            + " ".join(result.artifacts_generated or [])
+            + f" {getattr(spec, 'script_content', '')[:500]}"
+        ).lower()
+
+        tag_rules = {
+            "phase-diagram": ("phase", "diagram", "scan", "sweep", "morphospace"),
+            "topology-comparison": ("topology", "network", "laplacian", "spectral", "scale-free", "small-world", "er", "ba", "ws"),
+            "scaling-law": ("scaling", "exponent", "collapse", "universality", "critical", "finite-size"),
+            "bifurcation": ("bifurcation", "continuation", "pitchfork", "hopf", "threshold"),
+            "epidemic": ("epidemic", "sis", "sir", "contact", "transmission", "beta_c"),
+            "kuramoto": ("kuramoto", "oscillator", "synchronization", "adler"),
+            "reaction-diffusion": ("gray_scott", "gray-scott", "turing", "soliton", "lenia", "belousov"),
+        }
+        tags = [tag for tag, keywords in tag_rules.items() if any(kw in text_blob for kw in keywords)]
+        if not tags:
+            tags = ["world-c-experiment"]
+
+        entry = {
+            "job_id": result.job_id,
+            "title": getattr(spec, "title", ""),
+            "lineage_author": getattr(spec, "lineage_author", ""),
+            "realm_source": getattr(spec, "realm_source", ""),
+            "status": result.status.value,
+            "exit_code": result.exit_code,
+            "execution_time_seconds": round(float(result.execution_time_seconds or 0.0), 3),
+            "finished_at": result.finished_at,
+            "artifacts": [os.path.basename(a) for a in (result.artifacts_generated or [])],
+            "prefixed_artifacts": [f"world_c_{result.job_id}_{os.path.basename(a)}" for a in (result.artifacts_generated or [])],
+            "report_file": f"world_c_{result.job_id}_REPORT.md",
+            "tags": tags,
+        }
+
+        log_targets = [os.path.join(workspace_results_dir, "research_log.json")]
+        parent_ws = os.path.dirname(workspace_results_dir)
+        if os.path.basename(parent_ws) == "agent_workspace":
+            log_targets.append(os.path.join(parent_ws, "research_log.json"))
+
+        for log_path in log_targets:
+            try:
+                existing: List[Dict[str, Any]] = []
+                if os.path.exists(log_path):
+                    with open(log_path, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                        if isinstance(loaded, list):
+                            existing = loaded
+                        elif isinstance(loaded, dict) and isinstance(loaded.get("jobs"), list):
+                            existing = loaded["jobs"]
+                # Replace existing entry for same job_id or append
+                existing = [item for item in existing if item.get("job_id") != result.job_id]
+                existing.append(entry)
+                with open(log_path, "w", encoding="utf-8") as f:
+                    json.dump(existing, f, indent=2)
+            except Exception as e:
+                safe_print(f"[Embassy Bridge] Warning updating research_log.json at {log_path}: {e}")
 
     def reconcile_active_jobs(self, timeout: float = 300.0) -> List[Dict[str, Any]]:
         """

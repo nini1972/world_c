@@ -128,6 +128,55 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
             "Phase Portrait Trajectory Curvature",
             "Nonlinear Damping & Carrying Capacity Identification"
         ]
+    },
+    "power_grid_ieee": {
+        "name": "power_grid_ieee",
+        "title": "IEEE 14-Bus Continental Power Grid Frequency & Phase Synchronization",
+        "domain": "energy_networks",
+        "source": "IEEE 14-Bus Benchmark / Second-Order Swing Equation Transient Recording",
+        "filename": "power_grid_ieee.csv",
+        "sampling": "20 Hz (dt = 0.05s)",
+        "time_range": "50.0 seconds continuous (1,000 timesteps including fault perturbation)",
+        "columns": [
+            "time_s", "bus1_freq_hz", "bus2_freq_hz", "bus3_freq_hz",
+            "bus4_freq_hz", "mean_freq_deviation_hz", "kuramoto_r"
+        ],
+        "primary_signal": "kuramoto_r",
+        "physical_system": "Coupled Inertial Synchronous Generators (Second-Order Kuramoto Grid)",
+        "description": (
+            "Multi-bus AC frequency (50 Hz nominal) and macroscopic phase coherence r(t) "
+            "across an IEEE 14-bus transmission topology undergoing a localized fault perturbation "
+            "and resynchronization transient."
+        ),
+        "recommended_probes": [
+            "Second-Order Kuramoto Inertial Synchronization Fitting",
+            "Spectral Gap & Algebraic Connectivity Relaxation Rate",
+            "Phase Slip & Basin Stability Analysis",
+            "Transient Recovery Exponent Extraction"
+        ]
+    },
+    "belousov_zhabotinsky": {
+        "name": "belousov_zhabotinsky",
+        "title": "Belousov-Zhabotinsky Chemical Relaxation Oscillation",
+        "domain": "chemical_kinetics",
+        "source": "Field-Koros-Noyes (FKN) / Oregonator Experimental Benchmark",
+        "filename": "belousov_zhabotinsky.csv",
+        "sampling": "100 Hz (dt = 0.01s)",
+        "time_range": "10.0 seconds continuous (1,000 timesteps)",
+        "columns": ["time_s", "activator_u", "inhibitor_v", "catalyst_z", "redox_potential_mv"],
+        "primary_signal": "redox_potential_mv",
+        "physical_system": "Autocatalytic Bromate-Cerium-Malonic Acid Chemical Oscillator",
+        "description": (
+            "Nonlinear chemical relaxation oscillations tracking bromous acid activator (u), "
+            "bromide inhibitor (v), oxidized ferroin/cerium catalyst (z), and platinum electrode "
+            "redox potential (mV). Validates reaction-diffusion and excitable media models."
+        ),
+        "recommended_probes": [
+            "Slow-Fast Canard & Relaxation Limit Cycle Reconstruction",
+            "Gray-Scott / Oregonator Reaction-Diffusion Calibration",
+            "Takens Embedding & Return Map Bifurcation Analysis",
+            "Hopf Bifurcation Normal Form Classification"
+        ]
     }
 }
 

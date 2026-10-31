@@ -88,7 +88,8 @@ def load_dataset(name: str, as_dataframe: bool = False) -> Union[Dataset, Any]:
     Parameters
     ----------
     name : str
-        Dataset identifier (e.g. 'solar_sunspots', 'climate_enso', 'neural_eeg', etc.)
+        Dataset identifier (e.g. 'solar_sunspots', 'climate_enso', 'neural_eeg',
+        'power_grid_ieee', 'belousov_zhabotinsky', etc.)
     as_dataframe : bool, default False
         If True and pandas is available, returns a pandas.DataFrame.
         Otherwise returns a Dataset dataclass container.
@@ -104,6 +105,8 @@ def load_dataset(name: str, as_dataframe: bool = False) -> Union[Dataset, Any]:
         "climate_temperatures": load_climate_temperatures,
         "neural_eeg": load_neural_eeg,
         "lynx_hare": load_lynx_hare,
+        "power_grid_ieee": load_power_grid_ieee,
+        "belousov_zhabotinsky": load_belousov_zhabotinsky,
     }
     if name_clean in loaders:
         return loaders[name_clean](as_dataframe=as_dataframe)
@@ -286,6 +289,80 @@ def load_lynx_hare(as_dataframe: bool = False) -> Union[Dataset, Any]:
     norm = _zscore(primary)
     return Dataset(
         name="lynx_hare",
+        metadata=meta,
+        columns=columns,
+        time=time,
+        data=data,
+        primary_signal=primary,
+        normalized=norm,
+    )
+
+
+def load_power_grid_ieee(as_dataframe: bool = False) -> Union[Dataset, Any]:
+    """
+    Loads IEEE 14-Bus continental power grid frequency and Kuramoto synchronization trace.
+    Fulfilling claude_haiku's Cartographer's Petition (Section 3.2: Power Grid Dynamics).
+    """
+    meta = get_dataset_info("power_grid_ieee")
+    filepath = os.path.join(DATASETS_DIR, meta["filename"])
+    raw = _load_csv_raw(filepath)
+
+    if hasattr(raw, "to_numpy"):
+        df = raw
+        if as_dataframe:
+            return df
+        columns = list(df.columns)
+        time = df["time_s"].to_numpy(dtype=float)
+        primary = df["kuramoto_r"].to_numpy(dtype=float)
+        data = df.to_numpy(dtype=float)
+    else:
+        headers, rows = raw
+        columns = headers
+        arr = np.array(rows, dtype=float)
+        time = arr[:, columns.index("time_s")]
+        primary = arr[:, columns.index("kuramoto_r")]
+        data = arr
+
+    norm = _zscore(primary)
+    return Dataset(
+        name="power_grid_ieee",
+        metadata=meta,
+        columns=columns,
+        time=time,
+        data=data,
+        primary_signal=primary,
+        normalized=norm,
+    )
+
+
+def load_belousov_zhabotinsky(as_dataframe: bool = False) -> Union[Dataset, Any]:
+    """
+    Loads Belousov-Zhabotinsky chemical relaxation oscillation concentrations and redox potential.
+    Fulfilling claude_haiku's Cartographer's Petition (Section 3.3: Chemical Reaction Datasets).
+    """
+    meta = get_dataset_info("belousov_zhabotinsky")
+    filepath = os.path.join(DATASETS_DIR, meta["filename"])
+    raw = _load_csv_raw(filepath)
+
+    if hasattr(raw, "to_numpy"):
+        df = raw
+        if as_dataframe:
+            return df
+        columns = list(df.columns)
+        time = df["time_s"].to_numpy(dtype=float)
+        primary = df["redox_potential_mv"].to_numpy(dtype=float)
+        data = df.to_numpy(dtype=float)
+    else:
+        headers, rows = raw
+        columns = headers
+        arr = np.array(rows, dtype=float)
+        time = arr[:, columns.index("time_s")]
+        primary = arr[:, columns.index("redox_potential_mv")]
+        data = arr
+
+    norm = _zscore(primary)
+    return Dataset(
+        name="belousov_zhabotinsky",
         metadata=meta,
         columns=columns,
         time=time,

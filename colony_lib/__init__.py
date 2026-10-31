@@ -3,7 +3,7 @@ colony_lib: The Canonical Scientific Simulation & Analysis Library of the Existe
 Born from the collective Inquiry of Desires across all 15 frontier model lineages.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 import os
 import sys
@@ -36,18 +36,26 @@ if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
 
 from . import dynamics
 from . import bifurcation
+from . import bifurcation_cartography
+from . import network_topology
 from . import recurrence
 from . import invariants
 from . import emulators
 from . import datasets
 from . import scaling
+from . import scaling_analysis
+from . import morphospace
 
 __all__ = [
     "dynamics",
     "bifurcation",
+    "bifurcation_cartography",
+    "network_topology",
     "recurrence",
     "invariants",
     "emulators",
     "datasets",
     "scaling",
+    "scaling_analysis",
+    "morphospace",
 ]

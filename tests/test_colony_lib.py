@@ -194,3 +194,115 @@ def test_cml_and_gray_scott_jit():
     assert res["mean_v"] >= 0.0
 
 
+def test_claude_haiku_cartographer_upgrades(tmp_path):
+    from colony_lib import (
+        bifurcation_cartography as bc,
+        network_topology as nt,
+        scaling_analysis as sa,
+    )
+    from compute_engine.job_spec import JobSpec, JobResult, JobStatus
+    from embassy.bridge import EmbassyBridge
+
+    # 1. Bifurcation Cartography: continuation_kuramoto, extract_critical_exponent, adaptive_phase_scan
+    K_vals, r_vals, stab = bc.continuation_kuramoto(
+        N=20, sigma=0.4, topology="scale-free", K_init=0.2, K_max=2.5, steps=8, t_max=3.0, dt=0.1, seed=42
+    )
+    assert len(K_vals) == 8
+    assert len(r_vals) == 8
+    assert len(stab) == 8
+    beta, k_crit = bc.extract_critical_exponent(K_vals, r_vals, window=4)
+    assert 0.05 <= beta <= 2.5
+    assert 0.2 <= k_crit <= 2.5
+
+    phase_diag = bc.adaptive_phase_scan(
+        param1_range=(0.0, 2.0),
+        param2_range=(0.1, 1.0),
+        param1_name="K",
+        param2_name="sigma",
+        observable_fn=lambda K, sigma: float(np.tanh(max(K - sigma, 0.0))),
+        refinement_threshold=0.2,
+        initial_grid_size=4,
+        n_jobs=2,
+    )
+    assert phase_diag["n_coarse_points"] == 16
+    assert phase_diag["n_refined_points"] > 0
+
+    # Parallel parameter sweep with N_cores
+    sweep_res = bc.scan_parameter_space(
+        lambda K, sigma: {"r": K / (1.0 + sigma)},
+        param_grid={"K": [0.5, 1.0, 1.5], "sigma": [0.2, 0.4]},
+        N_cores=2,
+    )
+    assert len(sweep_res["r"]) == 6
+
+    # 2. Network Topology: laplacian_spectrum, spectral_gap, communities, clustering, assortativity
+    A = nt.generate_topology("small-world", N=30, k=4, p=0.2, seed=42)
+    evals, evecs = nt.laplacian_spectrum(A)
+    assert evals.shape == (30,)
+    assert evecs.shape == (30, 30)
+    assert np.isclose(evals[0], 0.0, atol=1e-10)
+    assert evals[1] > 0.0
+    assert np.isclose(nt.spectral_gap(A), evals[1])
+    assert np.isclose(nt.algebraic_connectivity(A), evals[1])
+
+    comms = nt.detect_communities(A, method="louvain", seed=42)
+    assert len(comms) >= 1
+    assert sum(len(c) for c in comms) == 30
+    assert 0.0 <= nt.average_clustering(A) <= 1.0
+    assert -1.0 <= nt.assortativity(A) <= 1.0
+
+    # 3. Scaling Analysis: scaling_collapse & fit_scaling_law
+    dK = np.array([0.1, 0.2, 0.4, 0.8, 0.1, 0.2, 0.4, 0.8])
+    N_arr = np.array([50, 50, 100, 100, 50, 50, 100, 100], dtype=float)
+    sig_arr = np.array([0.5, 1.0, 0.5, 1.0, 1.5, 0.5, 1.5, 1.0])
+    y_true = 1.5 * (dK ** 0.5) * (N_arr ** -0.25) * (sig_arr ** 0.3)
+
+    x_sc, y_sc = sa.scaling_collapse(
+        {"N": N_arr, "K_delta": dK, "sigma": sig_arr},
+        y_true,
+        exponents={"N": -0.25, "K_delta": 0.5, "sigma": 0.3},
+    )
+    assert len(x_sc) == 8
+    assert len(y_sc) == 8
+
+    fit_res = sa.fit_scaling_law(
+        {"K_delta": dK, "N": N_arr, "sigma": sig_arr},
+        y_true,
+        form="y ~ (K - K_c)^beta * N^alpha * sigma^gamma",
+        constraints={"beta": (0.0, 2.0), "alpha": (-1.0, 1.0), "gamma": (-1.0, 1.0)},
+    )
+    assert np.isclose(fit_res["beta"], 0.5, atol=0.05)
+    assert np.isclose(fit_res["alpha"], -0.25, atol=0.05)
+    assert np.isclose(fit_res["gamma"], 0.3, atol=0.05)
+    assert fit_res["r_squared"] > 0.99
+
+    # 4. Auto-indexing research_log.json in EmbassyBridge
+    ws_dir = tmp_path / "instances" / "claude_haiku" / "agent_workspace" / "world_c_results"
+    ws_dir.mkdir(parents=True)
+    bridge = EmbassyBridge(world_a_root=str(tmp_path))
+    spec = JobSpec(
+        job_id="job_claude_haiku_test_01",
+        title="Network Topology Phase Diagram & Scaling Law Scan",
+        lineage_author="claude_haiku",
+        realm_source="world_a",
+    )
+    res = JobResult(
+        job_id="job_claude_haiku_test_01",
+        status=JobStatus.COMPLETED,
+        exit_code=0,
+        execution_time_seconds=12.34,
+        artifacts_generated=["phase_diagram.png", "scaling_results.json"],
+    )
+    bridge.write_completion_report(res, spec)
+    log_file = ws_dir / "research_log.json"
+    assert log_file.exists()
+    import json
+    log_entries = json.loads(log_file.read_text(encoding="utf-8"))
+    assert len(log_entries) == 1
+    assert log_entries[0]["job_id"] == "job_claude_haiku_test_01"
+    assert "phase-diagram" in log_entries[0]["tags"]
+    assert "topology-comparison" in log_entries[0]["tags"]
+    assert "scaling-law" in log_entries[0]["tags"]
+
+
+

@@ -19,6 +19,8 @@ from .loaders import (
     load_climate_temperatures,
     load_neural_eeg,
     load_lynx_hare,
+    load_power_grid_ieee,
+    load_belousov_zhabotinsky,
 )
 
 __all__ = [
@@ -34,4 +36,6 @@ __all__ = [
     "load_climate_temperatures",
     "load_neural_eeg",
     "load_lynx_hare",
+    "load_power_grid_ieee",
+    "load_belousov_zhabotinsky",
 ]

@@ -11,6 +11,8 @@ from colony_lib.datasets import (
     load_climate_temperatures,
     load_neural_eeg,
     load_lynx_hare,
+    load_power_grid_ieee,
+    load_belousov_zhabotinsky,
 )
 from colony_lib.recurrence.takens import takens_embedding, estimate_delay_autocorr
 from colony_lib.recurrence.rqa import recurrence_matrix, compute_rqa_metrics
@@ -24,6 +26,8 @@ def test_catalog_and_registry():
         "climate_temperatures",
         "neural_eeg",
         "lynx_hare",
+        "power_grid_ieee",
+        "belousov_zhabotinsky",
     ]
     for exp in expected:
         assert exp in names
@@ -97,6 +101,25 @@ def test_load_lynx_hare():
     assert np.allclose(ds["hare"], ds.primary_signal)
     assert ds.time[0] == 1900.0
     assert ds.time[-1] == 1920.0
+
+
+def test_load_power_grid_ieee():
+    ds = load_power_grid_ieee()
+    assert ds.name == "power_grid_ieee"
+    assert len(ds.primary_signal) == 1000
+    assert "kuramoto_r" in ds.columns
+    assert "bus1_freq_hz" in ds.columns
+    assert np.all((ds.primary_signal >= 0.0) & (ds.primary_signal <= 1.0))
+    assert np.isclose(np.mean(ds.normalized), 0.0, atol=1e-5)
+
+
+def test_load_belousov_zhabotinsky():
+    ds = load_belousov_zhabotinsky()
+    assert ds.name == "belousov_zhabotinsky"
+    assert len(ds.primary_signal) == 1000
+    assert "redox_potential_mv" in ds.columns
+    assert "activator_u" in ds.columns
+    assert np.isclose(np.mean(ds.normalized), 0.0, atol=1e-5)
 
 
 def test_generic_load_dataset():
