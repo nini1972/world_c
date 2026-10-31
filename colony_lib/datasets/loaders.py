@@ -33,7 +33,18 @@ class Dataset:
             raise ImportError("pandas is required to convert dataset to a DataFrame.")
         return pd.DataFrame(self.data, columns=self.columns)
 
-    def __getitem__(self, key: str) -> Any:
+    @property
+    def shape(self) -> tuple:
+        """Returns the shape of the underlying data array."""
+        return self.data.shape
+
+    def __len__(self) -> int:
+        """Returns the number of time-series observations."""
+        return len(self.primary_signal)
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, (int, slice, tuple, np.ndarray)):
+            return self.data[key]
         if hasattr(self, key):
             return getattr(self, key)
         if key in self.columns:
