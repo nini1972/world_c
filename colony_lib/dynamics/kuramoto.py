@@ -106,23 +106,47 @@ def compute_order_parameter(theta: np.ndarray) -> Tuple[float, float]:
 class KuramotoEnsemble:
     """
     Represents an ensemble of coupled Kuramoto oscillators.
+    Supports both keyword initialization:
+        KuramotoEnsemble(n_oscillators=200, natural_frequencies=omega, coupling_matrix=A)
+    and legacy positional initialization:
+        KuramotoEnsemble(N, K, natural_frequencies, dt)
     """
     def __init__(
         self,
         n_oscillators: int = 100,
-        natural_frequencies: Optional[np.ndarray] = None,
-        coupling_matrix: Optional[np.ndarray] = None,
-        freq_distribution: str = "cauchy",
+        natural_frequencies: Optional[Any] = None,
+        coupling_matrix: Optional[Any] = None,
+        freq_distribution: Any = "cauchy",
         freq_scale: float = 1.0,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        K: float = 1.0,
+        dt: float = 0.05
     ):
-        self.N = n_oscillators
+        self.N = int(n_oscillators)
+        self.K = float(K)
+        self.dt = float(dt)
         self.rng = np.random.default_rng(seed)
-        
+
+        # Detect legacy positional call: KuramotoEnsemble(N, K, natural_frequencies, dt)
+        if natural_frequencies is not None and np.ndim(natural_frequencies) == 0:
+            self.K = float(natural_frequencies)
+            if coupling_matrix is not None and np.ndim(coupling_matrix) == 1:
+                natural_frequencies = coupling_matrix
+                coupling_matrix = None
+            else:
+                natural_frequencies = None
+            if isinstance(freq_distribution, (int, float, np.floating, np.integer)):
+                self.dt = float(freq_distribution)
+                freq_distribution = "cauchy"
+
         if natural_frequencies is not None:
-            if len(natural_frequencies) != self.N:
-                raise ValueError(f"Frequencies length ({len(natural_frequencies)}) != N ({self.N})")
-            self.omega = np.asarray(natural_frequencies, dtype=np.float64)
+            omega_arr = np.asarray(natural_frequencies, dtype=np.float64)
+            if omega_arr.ndim == 0:
+                self.omega = np.full(self.N, float(omega_arr), dtype=np.float64)
+            else:
+                if len(omega_arr) != self.N:
+                    raise ValueError(f"Frequencies length ({len(omega_arr)}) != N ({self.N})")
+                self.omega = omega_arr
         else:
             if freq_distribution == "cauchy":
                 # Standard Cauchy distribution with scale gamma
@@ -135,8 +159,29 @@ class KuramotoEnsemble:
             else:
                 raise ValueError(f"Unknown frequency distribution: {freq_distribution}")
                 
-        self.A = coupling_matrix.astype(np.float64) if coupling_matrix is not None else None
+        self.A = np.asarray(coupling_matrix, dtype=np.float64) if coupling_matrix is not None else None
         self.theta = self.rng.uniform(-np.pi, np.pi, size=self.N).astype(np.float64)
+        self.phases: np.ndarray = np.empty((0, self.N), dtype=np.float64)
+        self.r_series: np.ndarray = np.empty(0, dtype=np.float64)
+
+    def run(self, t_max: float = 50.0, K: Optional[float] = None, dt: Optional[float] = None) -> np.ndarray:
+        """
+        Integrates the ensemble up to t_max, recording phase history in `self.phases`
+        (shape: (n_steps, N)) and order parameter history in `self.r_series`.
+        """
+        k_val = float(K) if K is not None else self.K
+        dt_val = float(dt) if dt is not None else self.dt
+        n_steps = max(1, int(round(t_max / dt_val)))
+        phases = np.empty((n_steps, self.N), dtype=np.float64)
+        r_series = np.empty(n_steps, dtype=np.float64)
+        for s in range(n_steps):
+            phases[s] = self.theta
+            r, _ = compute_order_parameter(self.theta)
+            r_series[s] = r
+            self.step_rk4(k_val, dt_val)
+        self.phases = phases
+        self.r_series = r_series
+        return phases
         
     def step_rk4(self, K: float, dt: float):
         """Advances oscillator phases by dt using 4th-order Runge-Kutta."""
@@ -167,6 +212,9 @@ def simulate_kuramoto(
     dt: float = 0.05,
     transient_fraction: float = 0.5,
     coupling_matrix: Optional[np.ndarray] = None,
+    natural_frequencies: Optional[np.ndarray] = None,
+    freq_distribution: str = "cauchy",
+    freq_scale: float = 1.0,
     seed: Optional[int] = 42
 ) -> Dict[str, Any]:
     """
@@ -175,8 +223,13 @@ def simulate_kuramoto(
     """
     ensemble = KuramotoEnsemble(
         n_oscillators=n_oscillators,
+        natural_frequencies=natural_frequencies,
         coupling_matrix=coupling_matrix,
-        seed=seed
+        freq_distribution=freq_distribution,
+        freq_scale=freq_scale,
+        seed=seed,
+        K=K,
+        dt=dt
     )
     
     n_steps = int(t_max / dt)
