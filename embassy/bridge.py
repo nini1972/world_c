@@ -195,15 +195,21 @@ class EmbassyBridge:
                 author_ws = os.path.join(self.world_b_root, "instances", lineage_author, "agent_workspace", "world_c_results")
                 workspace_destinations.append(author_ws)
             
-        # Copy to shared destinations with world_c_{job_id}_ prefix
+        # Copy to shared destinations with world_c_{job_id}_ prefix AND dedicated job_id/ directory
         for dest in shared_destinations:
             os.makedirs(dest, exist_ok=True)
+            job_subdest = os.path.join(dest, job_id)
+            os.makedirs(job_subdest, exist_ok=True)
             for art in result.artifacts_generated:
                 src_art = os.path.join(job_dir, art)
                 if os.path.exists(src_art):
+                    # Flat prefixed in shared artifacts
                     dst_art = os.path.join(dest, f"world_c_{job_id}_{os.path.basename(art)}")
                     shutil.copyfile(src_art, dst_art)
-                    safe_print(f"[Embassy Bridge] Published artifact to {dst_art}")
+                    # Inside dedicated job_id folder (clean filename)
+                    dst_sub_art = os.path.join(job_subdest, os.path.basename(art))
+                    shutil.copyfile(src_art, dst_sub_art)
+                    safe_print(f"[Embassy Bridge] Published artifact to {dst_art} and {dst_sub_art}")
 
         # Copy to author's workspace with both clean name and prefixed name
         for ws_dest in workspace_destinations:
@@ -226,7 +232,11 @@ class EmbassyBridge:
         destination_dir: Optional[str] = None
     ):
         """Generates a detailed markdown report for the calling realm in dedicated and author directories."""
-        art_list = "\n".join([f"- `world_c_{result.job_id}_{os.path.basename(a)}`" for a in result.artifacts_generated]) or "*(None)*"
+        art_items = []
+        for a in result.artifacts_generated:
+            base_name = os.path.basename(a)
+            art_items.append(f"- `{base_name}` (delivered to `world_c_results/{base_name}` and `world_c/artifacts/{result.job_id}/{base_name}`)")
+        art_list = "\n".join(art_items) or "*(None)*"
         
         err_block = ""
         if result.stderr_tail.strip():

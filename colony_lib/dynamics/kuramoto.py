@@ -113,19 +113,24 @@ class KuramotoEnsemble:
     """
     def __init__(
         self,
-        n_oscillators: int = 100,
+        n_oscillators: Optional[int] = None,
         natural_frequencies: Optional[Any] = None,
         coupling_matrix: Optional[Any] = None,
         freq_distribution: Any = "cauchy",
         freq_scale: float = 1.0,
         seed: Optional[int] = None,
-        K: float = 1.0,
-        dt: float = 0.05
+        K: Optional[float] = None,
+        dt: Optional[float] = None,
+        N: Optional[int] = None,
+        **kwargs
     ):
+        if n_oscillators is None:
+            n_oscillators = N if N is not None else kwargs.get("N", 100)
         self.N = int(n_oscillators)
-        self.K = float(K)
-        self.dt = float(dt)
-        self.rng = np.random.default_rng(seed)
+        self.K = float(K if K is not None else kwargs.get("k", 1.0))
+        self.dt = float(dt if dt is not None else kwargs.get("dt", 0.05))
+        rng_seed = seed if seed is not None else kwargs.get("seed", None)
+        self.rng = np.random.default_rng(rng_seed)
 
         # Detect legacy positional call: KuramotoEnsemble(N, K, natural_frequencies, dt)
         if natural_frequencies is not None and np.ndim(natural_frequencies) == 0:

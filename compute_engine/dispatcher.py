@@ -202,9 +202,20 @@ except Exception as err:
                 
         # Scan for generated artifacts
         artifacts = []
+        excluded_files = {
+            "spec.json", "result.json", "stdout.log", "stderr.log",
+            "worker.log", "entrypoint.py", "entrypoint.sh", "spec.json.processed"
+        }
+        valid_extensions = (
+            ".png", ".jpg", ".jpeg", ".svg", ".gif", ".pdf",
+            ".csv", ".tsv", ".json", ".jsonl", ".npz", ".npy",
+            ".h5", ".hdf5", ".parquet", ".txt", ".md", ".dat", ".html"
+        )
         for root, _, files in os.walk(job_dir):
             for file in files:
-                if file.endswith((".png", ".jpg", ".csv", ".json", ".npz", ".h5")) and file not in ["spec.json", "result.json"]:
+                if file in excluded_files:
+                    continue
+                if file.endswith(valid_extensions):
                     artifacts.append(os.path.relpath(os.path.join(root, file), job_dir))
         result.artifacts_generated = artifacts
         

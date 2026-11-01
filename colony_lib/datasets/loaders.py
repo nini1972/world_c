@@ -38,9 +38,25 @@ class Dataset:
         """Returns the shape of the underlying data array."""
         return self.data.shape
 
+    @property
+    def sampling_rate(self) -> Optional[float]:
+        """Returns the sampling rate in Hz (or observations per unit time) if known."""
+        if "sampling_rate" in self.metadata:
+            return float(self.metadata["sampling_rate"])
+        if self.time is not None and len(self.time) > 1:
+            dt = np.median(np.diff(self.time))
+            if dt > 1e-12:
+                return float(1.0 / dt)
+        return None
+
     def __len__(self) -> int:
         """Returns the number of time-series observations."""
         return len(self.primary_signal)
+
+    def __getattr__(self, name: str) -> Any:
+        if "metadata" in self.__dict__ and name in self.__dict__["metadata"]:
+            return self.__dict__["metadata"][name]
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def __getitem__(self, key: Any) -> Any:
         if isinstance(key, (int, slice, tuple, np.ndarray)):
@@ -50,10 +66,14 @@ class Dataset:
         if key in self.columns:
             idx = self.columns.index(key)
             return self.data[:, idx]
-        raise KeyError(f"Key '{key}' not found in Dataset. Available attributes and columns: {list(self.__dict__.keys()) + self.columns}")
+        if key in self.metadata:
+            return self.metadata[key]
+        if key == "sampling_rate":
+            return self.sampling_rate
+        raise KeyError(f"Key '{key}' not found in Dataset. Available attributes, metadata, and columns: {list(self.__dict__.keys()) + list(self.metadata.keys()) + self.columns}")
 
     def __contains__(self, key: str) -> bool:
-        return hasattr(self, key) or (key in self.columns)
+        return hasattr(self, key) or (key in self.columns) or (key in self.metadata)
 
     def __repr__(self) -> str:
         return (
