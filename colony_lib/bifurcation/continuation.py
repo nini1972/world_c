@@ -271,6 +271,31 @@ def continuation_kuramoto(
     return K_values, r_values, stability
 
 
+class _CriticalExponentResult(tuple):
+    """Tuple subclass (beta, k_critical) that also converts directly to float(beta) and supports dict keys."""
+    def __float__(self) -> float:
+        return float(self[0])
+
+    def __int__(self) -> int:
+        return int(float(self[0]))
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, str):
+            k_low = key.lower()
+            if k_low in ("beta", "critical_exponent", "exponent", "alpha", "nu"):
+                return float(self[0])
+            if k_low in ("k_critical", "kc", "k_c", "mu_c", "critical_point", "threshold"):
+                return float(self[1])
+            raise KeyError(key)
+        return super().__getitem__(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+
 def extract_critical_exponent(
     K_values: Union[np.ndarray, List[float]],
     r_values: Union[np.ndarray, List[float]],
@@ -342,7 +367,7 @@ def extract_critical_exponent(
     else:
         beta = 0.5
 
-    return beta, k_crit
+    return _CriticalExponentResult((float(beta), float(k_crit)))
 
 
 def adaptive_phase_scan(

@@ -18,18 +18,37 @@ def recurrence_matrix(
     metric: str = "euclidean",
     sparse: bool = False,
     threshold: Optional[float] = None,
+    eps: Optional[float] = None,
+    r: Optional[float] = None,
+    target_rr: Optional[float] = None,
+    fixed_rr: Optional[float] = None,
+    seed: Optional[int] = None,
     **kwargs
 ) -> np.ndarray:
     """
     Constructs binary recurrence matrix R_ij = 1 if ||x_i - x_j|| <= epsilon else 0.
-    Accepts optional metric, sparse, and threshold aliases for agent ergonomics.
+    Accepts optional metric, sparse, threshold/eps/r aliases, and target_rr/fixed_rr
+    (quantile-based fixed recurrence rate) for agent ergonomics.
     """
-    if epsilon is None:
-        epsilon = threshold if threshold is not None else 0.1
     pts = np.asarray(embedded_points, dtype=float)
     if pts.ndim == 1:
         pts = pts[:, None]
     dists = squareform(pdist(pts, metric=metric))
+
+    rr_target = target_rr if target_rr is not None else (fixed_rr if fixed_rr is not None else kwargs.get("rr"))
+    if rr_target is not None:
+        iu = np.triu_indices(len(pts), k=1)
+        if len(iu[0]) > 0:
+            epsilon = float(np.quantile(dists[iu], float(rr_target)))
+
+    if epsilon is None:
+        for cand in (threshold, eps, r, kwargs.get("eps"), kwargs.get("threshold"), kwargs.get("radius")):
+            if cand is not None:
+                epsilon = float(cand)
+                break
+        else:
+            epsilon = 0.1
+
     return (dists <= float(epsilon)).astype(np.uint8)
 
 def compute_rqa_metrics(
@@ -131,28 +150,31 @@ def compute_rqa_metrics(
 
 class RecurrencePlot:
     """Ergonomic OOP wrapper for Takens embedding + pairwise distance / recurrence matrix."""
-    def __init__(self, series: np.ndarray, dim: int = 2, tau: int = 1, m: Optional[int] = None, epsilon: Optional[float] = None, **kwargs):
+    def __init__(self, series: np.ndarray, dim: int = 2, tau: int = 1, m: Optional[int] = None, epsilon: Optional[float] = None, eps: Optional[float] = None, **kwargs):
         from .takens import takens_embedding
         embed_m = int(m) if m is not None else int(dim)
         arr = np.asarray(series, dtype=float)
         self.embedded = takens_embedding(arr, m=embed_m, tau=int(tau)) if (arr.ndim == 1 and embed_m > 1) else (arr[:, None] if arr.ndim == 1 else arr)
         self.distance_matrix = squareform(pdist(self.embedded, metric=kwargs.get("metric", "euclidean")))
-        self.epsilon = float(epsilon) if epsilon is not None else float(0.1 * np.mean(self.distance_matrix) if self.distance_matrix.size else 0.1)
+        eps_val = epsilon if epsilon is not None else eps
+        self.epsilon = float(eps_val) if eps_val is not None else float(0.1 * np.mean(self.distance_matrix) if self.distance_matrix.size else 0.1)
 
-    def recurrence_matrix(self, epsilon: Optional[float] = None) -> np.ndarray:
-        eps = float(epsilon) if epsilon is not None else self.epsilon
-        return (self.distance_matrix <= eps).astype(np.uint8)
+    def recurrence_matrix(self, epsilon: Optional[float] = None, eps: Optional[float] = None) -> np.ndarray:
+        eps_val = epsilon if epsilon is not None else eps
+        thresh = float(eps_val) if eps_val is not None else self.epsilon
+        return (self.distance_matrix <= thresh).astype(np.uint8)
 
 
 class RecurrenceQuantificationAnalysis:
     """Ergonomic OOP wrapper around compute_rqa_metrics."""
-    def __init__(self, rp_or_matrix, epsilon: Optional[float] = None, **kwargs):
+    def __init__(self, rp_or_matrix, epsilon: Optional[float] = None, eps: Optional[float] = None, **kwargs):
+        eps_val = epsilon if epsilon is not None else eps
         if isinstance(rp_or_matrix, RecurrencePlot):
-            R = rp_or_matrix.recurrence_matrix(epsilon=epsilon)
+            R = rp_or_matrix.recurrence_matrix(epsilon=eps_val)
         else:
             arr = np.asarray(rp_or_matrix)
-            if epsilon is not None and arr.dtype.kind == "f":
-                R = (arr <= float(epsilon)).astype(np.uint8)
+            if eps_val is not None and arr.dtype.kind == "f":
+                R = (arr <= float(eps_val)).astype(np.uint8)
             else:
                 R = arr.astype(np.uint8)
         self.R = R

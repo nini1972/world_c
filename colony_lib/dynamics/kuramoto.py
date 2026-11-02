@@ -127,7 +127,9 @@ class KuramotoEnsemble:
         if n_oscillators is None:
             n_oscillators = N if N is not None else kwargs.get("N", 100)
         self.N = int(n_oscillators)
-        self.K = float(K if K is not None else kwargs.get("k", 1.0))
+        k_init = K if K is not None else kwargs.get("coupling", kwargs.get("coupling_strength", kwargs.get("k", 1.0)))
+        self.K = float(k_init)
+        self.coupling = self.K
         self.dt = float(dt if dt is not None else kwargs.get("dt", 0.05))
         rng_seed = seed if seed is not None else kwargs.get("seed", None)
         self.rng = np.random.default_rng(rng_seed)
@@ -169,14 +171,47 @@ class KuramotoEnsemble:
         self.phases: np.ndarray = np.empty((0, self.N), dtype=np.float64)
         self.r_series: np.ndarray = np.empty(0, dtype=np.float64)
 
-    def run(self, t_max: float = 50.0, K: Optional[float] = None, dt: Optional[float] = None) -> np.ndarray:
+    def run(
+        self,
+        t_max: float = 50.0,
+        dt_or_K: Optional[float] = None,
+        dt: Optional[float] = None,
+        K: Optional[float] = None,
+        T: Optional[float] = None,
+        **kwargs
+    ) -> Tuple[np.ndarray, list]:
         """
         Integrates the ensemble up to t_max, recording phase history in `self.phases`
         (shape: (n_steps, N)) and order parameter history in `self.r_series`.
+        Returns `(times, order_parameters)` tuple so `times, r = ensemble.run(T, dt)` unpacks cleanly.
         """
-        k_val = float(K) if K is not None else self.K
-        dt_val = float(dt) if dt is not None else self.dt
-        n_steps = max(1, int(round(t_max / dt_val)))
+        total_t = float(T) if T is not None else float(t_max)
+        # Disambiguate 2nd positional arg: if dt is None and dt_or_K is small (<= 1.0), treat as dt
+        if dt is not None:
+            dt_val = float(dt)
+            k_val = float(K) if K is not None else (float(dt_or_K) if dt_or_K is not None else self.K)
+        elif dt_or_K is not None:
+            if K is None and float(dt_or_K) <= 1.0:
+                dt_val = float(dt_or_K)
+                k_val = float(self.K)
+            else:
+                k_val = float(dt_or_K)
+                dt_val = float(self.dt)
+        else:
+            dt_val = float(self.dt)
+            k_val = float(K) if K is not None else float(self.K)
+
+        # If caller initialized `ensemble.phases = rng.uniform(0, 2*pi, N)` as 1D initial state, adopt it
+        if isinstance(self.phases, np.ndarray) and self.phases.ndim == 1 and len(self.phases) == self.N:
+            self.theta = np.asarray(self.phases, dtype=np.float64).copy()
+        elif len(self.theta) != self.N:
+            self.theta = self.rng.uniform(-np.pi, np.pi, size=self.N).astype(np.float64)
+
+        if len(self.omega) != self.N:
+            self.omega = self.rng.normal(0.0, 1.0, size=self.N).astype(np.float64)
+
+        n_steps = max(1, int(round(total_t / dt_val)))
+        times = np.linspace(0.0, total_t, n_steps, endpoint=False)
         phases = np.empty((n_steps, self.N), dtype=np.float64)
         r_series = np.empty(n_steps, dtype=np.float64)
         for s in range(n_steps):
@@ -186,7 +221,29 @@ class KuramotoEnsemble:
             self.step_rk4(k_val, dt_val)
         self.phases = phases
         self.r_series = r_series
-        return phases
+        self.times = times
+        return times, r_series.tolist()
+
+    def simulate(self, T: float = 50.0, dt: Optional[float] = None, K: Optional[float] = None, **kwargs) -> Tuple[np.ndarray, list]:
+        """Alias for run(T, dt) returning (times, order_parameters)."""
+        return self.run(t_max=T, dt=dt, K=K, **kwargs)
+
+    def step(self, dt: Optional[float] = None, K: Optional[float] = None) -> float:
+        """Advances oscillator phases by one step and returns current order parameter r."""
+        dt_val = float(dt) if dt is not None else float(self.dt)
+        k_val = float(K) if K is not None else float(self.K)
+        if isinstance(self.phases, np.ndarray) and self.phases.ndim == 1 and len(self.phases) == self.N:
+            self.theta = np.asarray(self.phases, dtype=np.float64).copy()
+            self.phases = np.empty((0, self.N), dtype=np.float64)
+        self.step_rk4(k_val, dt_val)
+        r, _ = compute_order_parameter(self.theta)
+        return float(r)
+
+    def order_parameter(self) -> float:
+        """Returns current scalar Kuramoto order parameter r."""
+        th = self.phases if (isinstance(self.phases, np.ndarray) and self.phases.ndim == 1 and len(self.phases) == self.N) else self.theta
+        r, _ = compute_order_parameter(th)
+        return float(r)
         
     def step_rk4(self, K: float, dt: float):
         """Advances oscillator phases by dt using 4th-order Runge-Kutta."""
