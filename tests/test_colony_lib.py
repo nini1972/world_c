@@ -4,6 +4,8 @@ import pytest
 from colony_lib.dynamics.kuramoto import simulate_kuramoto, compute_order_parameter
 from colony_lib.dynamics.solitons import simulate_phi4_collision
 from colony_lib.dynamics.gray_scott import simulate_gray_scott
+from colony_lib.dynamics.cml import coupled_map_lattice, coupled_logistic_map
+from colony_lib.dynamics import coupled_map_lattice as dynamics_cml
 from colony_lib.dynamics.integrators import rk4_step, velocity_verlet_step
 from colony_lib.bifurcation.continuation import detect_critical_point
 from colony_lib.bifurcation.normal_forms import classify_bifurcation_1d
@@ -30,6 +32,14 @@ def test_gray_scott_simulation():
     res = simulate_gray_scott(grid_size=32, steps=100, dt=1.0, seed=42)
     assert res["v_field"].shape == (32, 32)
     assert res["mean_v"] >= 0.0
+
+def test_coupled_map_lattice():
+    # Test import and simulation alias (SOS-2026-11-03-llama_70b-4fa901 fix)
+    assert coupled_map_lattice is coupled_logistic_map
+    assert dynamics_cml is coupled_logistic_map
+    traj = coupled_map_lattice(N=20, steps=50, r=3.865, eps=0.132, seed=42)
+    assert traj.shape == (50, 20)
+    assert np.all(traj >= 0.0) and np.all(traj <= 1.0)
 
 def test_takens_and_rqa():
     # Test on a sine wave

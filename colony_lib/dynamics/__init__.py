@@ -11,7 +11,7 @@ from .turing import turing_dispersion_relation, check_turing_conditions
 from .lenia import Lenia2D
 LeniaAutomata = Lenia2D
 from .contact_process import contact_process, simulate_contact_process
-from .cml import coupled_logistic_map, simulate_coupled_logistic_map
+from .cml import coupled_logistic_map, simulate_coupled_logistic_map, coupled_map_lattice
 
 
 def logistic_map(

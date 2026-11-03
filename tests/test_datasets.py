@@ -69,6 +69,17 @@ def test_load_climate_enso():
     assert np.isclose(np.mean(ds.normalized), 0.0, atol=1e-5)
     assert np.isclose(np.std(ds.normalized), 1.0, atol=1e-5)
 
+    # Test column indexing on DatasetDataArray and Dataset container (SOS-2026-11-03-mistral_large-575ed6 fix)
+    assert np.allclose(ds.data["Nino3.4"], ds.primary_signal)
+    assert np.allclose(ds["data"]["Nino3.4"], ds.primary_signal)
+    assert np.allclose(ds["Nino3.4"], ds.primary_signal)
+
+    regions = ["Nino1+2", "Nino3", "Nino3.4", "Nino4"]
+    multi_col_data = ds.data[regions]
+    assert multi_col_data.shape == (len(ds.primary_signal), 4)
+    assert ds["data"][regions].shape == (len(ds.primary_signal), 4)
+    assert ds[regions].shape == (len(ds.primary_signal), 4)
+
 
 def test_load_climate_temperatures():
     ds = load_climate_temperatures()

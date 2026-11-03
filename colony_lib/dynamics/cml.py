@@ -154,3 +154,8 @@ def simulate_coupled_logistic_map(
         trajectory[t] = x_curr
         
     return trajectory
+
+
+# Alias for cross-world and citizen compatibility
+coupled_map_lattice = coupled_logistic_map
+

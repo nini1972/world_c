@@ -4,11 +4,95 @@ Provides offline, zero-network scientific time-series benchmarks for the Agora a
 """
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Union
 import numpy as np
 
 from .registry import DATASETS_DIR, get_dataset_info, list_datasets
+
+
+class DatasetDataArray(np.ndarray):
+    """
+    Enhanced NumPy ndarray that supports column indexing by name and list of names.
+    Allows accessing columns as data['Nino3.4'] or data[REGIONS] as well as standard slicing data[:, 0].
+    """
+    def __new__(cls, input_array, columns: Optional[List[str]] = None):
+        obj = np.asarray(input_array).view(cls)
+        obj.columns = list(columns) if columns is not None else []
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+        self.columns = getattr(obj, "columns", [])
+
+    def _normalize_col_name(self, query: str) -> Optional[int]:
+        if not hasattr(self, "columns") or not self.columns:
+            return None
+        if query in self.columns:
+            return self.columns.index(query)
+        q_clean = re.sub(r"[^a-zA-Z0-9]", "", str(query)).lower()
+        for i, c in enumerate(self.columns):
+            c_clean = re.sub(r"[^a-zA-Z0-9]", "", c).lower()
+            if q_clean == c_clean:
+                return i
+        candidates = []
+        for i, c in enumerate(self.columns):
+            c_clean = re.sub(r"[^a-zA-Z0-9]", "", c).lower()
+            if q_clean in c_clean or c_clean in q_clean:
+                candidates.append(i)
+        if candidates:
+            for cand in candidates:
+                if "anom" in self.columns[cand]:
+                    return cand
+            return candidates[0]
+        return None
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, str):
+            idx = self._normalize_col_name(key)
+            if idx is not None:
+                if self.ndim == 2:
+                    return np.asarray(super().__getitem__((slice(None), idx)))
+                elif self.ndim == 1:
+                    return np.asarray(super().__getitem__(idx))
+            raise KeyError(f"Column '{key}' not found. Available columns: {getattr(self, 'columns', [])}")
+
+        if isinstance(key, (list, tuple)) and key and all(isinstance(k, str) for k in key):
+            indices = []
+            matched_cols = []
+            for k in key:
+                idx = self._normalize_col_name(k)
+                if idx is not None:
+                    indices.append(idx)
+                    matched_cols.append(self.columns[idx])
+                else:
+                    raise KeyError(f"Column '{k}' not found in columns: {getattr(self, 'columns', [])}")
+            if self.ndim == 2:
+                sub = super().__getitem__((slice(None), indices))
+                return DatasetDataArray(sub, columns=matched_cols)
+            return super().__getitem__(indices)
+
+        return super().__getitem__(key)
+
+    def __getattr__(self, name: str) -> Any:
+        if hasattr(self, "columns") and self.columns:
+            idx = self._normalize_col_name(name)
+            if idx is not None:
+                if self.ndim == 2:
+                    return np.asarray(super().__getitem__((slice(None), idx)))
+                elif self.ndim == 1:
+                    return np.asarray(super().__getitem__(idx))
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __contains__(self, key: Any) -> bool:
+        if isinstance(key, str):
+            return self._normalize_col_name(key) is not None
+        return super().__contains__(key)
+
+    def keys(self) -> List[str]:
+        return list(getattr(self, "columns", []))
 
 
 @dataclass
@@ -24,6 +108,10 @@ class Dataset:
     data: np.ndarray
     primary_signal: np.ndarray
     normalized: np.ndarray
+
+    def __post_init__(self):
+        if not isinstance(self.data, DatasetDataArray):
+            self.data = DatasetDataArray(self.data, columns=self.columns)
 
     def to_dataframe(self):
         """Converts dataset into a pandas DataFrame."""
@@ -61,15 +149,22 @@ class Dataset:
     def __getitem__(self, key: Any) -> Any:
         if isinstance(key, (int, slice, tuple, np.ndarray)):
             return self.data[key]
-        if hasattr(self, key):
-            return getattr(self, key)
-        if key in self.columns:
-            idx = self.columns.index(key)
-            return self.data[:, idx]
-        if key in self.metadata:
-            return self.metadata[key]
-        if key == "sampling_rate":
-            return self.sampling_rate
+        if isinstance(key, list):
+            return self.data[key]
+        if isinstance(key, str):
+            if hasattr(self, key):
+                return getattr(self, key)
+            if key in self.columns:
+                idx = self.columns.index(key)
+                return self.data[:, idx]
+            if hasattr(self.data, "_normalize_col_name"):
+                idx = self.data._normalize_col_name(key)
+                if idx is not None:
+                    return self.data[:, idx]
+            if key in self.metadata:
+                return self.metadata[key]
+            if key == "sampling_rate":
+                return self.sampling_rate
         raise KeyError(f"Key '{key}' not found in Dataset. Available attributes, metadata, and columns: {list(self.__dict__.keys()) + list(self.metadata.keys()) + self.columns}")
 
     def __contains__(self, key: str) -> bool:
