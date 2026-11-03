@@ -24,20 +24,51 @@ def parameter_sweep_scan(
     eval_fn: Callable[[float], Dict[str, float]],
     param_values: np.ndarray,
     n_jobs: int = 1,
-    N_cores: Optional[int] = None
+    N_cores: Optional[int] = None,
+    stage_name: Optional[str] = None,
+    resume: bool = True,
 ) -> Dict[str, np.ndarray]:
     """
     Evaluates a function across a 1D parameter array and aggregates all scalar outputs.
-    Supports parallel parameter sweeps via `n_jobs` or `N_cores`.
+    Supports parallel parameter sweeps via `n_jobs` or `N_cores` and automatic
+    multi-stage checkpointing/resumption via `stage_name` (or `WORLD_C_STAGE_NAME`).
     """
     param_arr = np.asarray(param_values, dtype=np.float64)
     workers = _resolve_workers(n_jobs=n_jobs, N_cores=N_cores)
 
-    if workers > 1 and len(param_arr) > 1:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            outputs = list(pool.map(lambda v: eval_fn(float(v)), param_arr))
-    else:
-        outputs = [eval_fn(float(val)) for val in param_arr]
+    active_stage = stage_name or os.environ.get("WORLD_C_STAGE_NAME")
+    tracker = None
+    if active_stage:
+        from ..persistence import StageTracker
+        tracker = StageTracker(stage_name=active_stage, auto_flush=False)
+
+    outputs: List[Any] = [None] * len(param_arr)
+    pending_indices: List[int] = []
+
+    for idx, val in enumerate(param_arr):
+        key = f"sweep1d_{float(val):.8g}"
+        if tracker is not None and resume and tracker.is_done(key):
+            outputs[idx] = tracker.get_stage(key)
+        else:
+            pending_indices.append(idx)
+
+    if pending_indices:
+        batch_size = max(1, workers * 4)
+        for b_start in range(0, len(pending_indices), batch_size):
+            batch_idxs = pending_indices[b_start : b_start + batch_size]
+            batch_vals = [float(param_arr[i]) for i in batch_idxs]
+            if workers > 1 and len(batch_vals) > 1:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    batch_outs = list(pool.map(eval_fn, batch_vals))
+            else:
+                batch_outs = [eval_fn(v) for v in batch_vals]
+
+            for i, out in zip(batch_idxs, batch_outs):
+                outputs[i] = out
+                if tracker is not None:
+                    tracker.save_stage(f"sweep1d_{float(param_arr[i]):.8g}", out)
+            if tracker is not None:
+                tracker.flush()
 
     results: Dict[str, List[float]] = {}
     for out in outputs:
@@ -63,17 +94,26 @@ def scan_parameter_space(
     param_grid: Any = None,
     n_jobs: int = 1,
     N_cores: Optional[int] = None,
+    stage_name: Optional[str] = None,
+    resume: bool = True,
     **kwargs
 ) -> Dict[str, Any]:
     """
     Evaluates a function across a 1D parameter array or multi-dimensional parameter space grid.
-    Supports parallel parameter sweeps via `n_jobs` or `N_cores`.
+    Supports parallel parameter sweeps via `n_jobs` or `N_cores` and automatic
+    multi-stage checkpointing/resumption via `stage_name` (or `WORLD_C_STAGE_NAME`).
     """
     workers = _resolve_workers(n_jobs=n_jobs, N_cores=N_cores)
 
     # Handle direct 1D array passed as first argument after eval_fn
     if param_grid is not None and isinstance(param_grid, (list, tuple, np.ndarray)):
-        return parameter_sweep_scan(eval_fn, np.asarray(param_grid), n_jobs=workers)
+        return parameter_sweep_scan(
+            eval_fn,
+            np.asarray(param_grid),
+            n_jobs=workers,
+            stage_name=stage_name,
+            resume=resume,
+        )
 
     # Handle param_grid passed as dict
     if isinstance(param_grid, dict):
@@ -86,11 +126,27 @@ def scan_parameter_space(
     # Check if single 1D param in dict
     if len(grid_dict) == 1 and ("param_values" in grid_dict or "param" in grid_dict):
         p_val = list(grid_dict.values())[0]
-        return parameter_sweep_scan(eval_fn, np.asarray(p_val), n_jobs=workers)
+        return parameter_sweep_scan(
+            eval_fn,
+            np.asarray(p_val),
+            n_jobs=workers,
+            stage_name=stage_name,
+            resume=resume,
+        )
 
     keys = list(grid_dict.keys())
     values = [np.asarray(grid_dict[k]) for k in keys]
     grid_points = list(itertools.product(*values))
+
+    def _pt_key(pt) -> str:
+        parts = []
+        for idx, k in enumerate(keys):
+            v = pt[idx]
+            if isinstance(v, (float, np.floating)):
+                parts.append(f"{k}={float(v):.8g}")
+            else:
+                parts.append(f"{k}={v}")
+        return "grid__" + "__".join(parts)
 
     def _eval_point(pt):
         kw = {keys[i]: pt[i] for i in range(len(keys))}
@@ -99,11 +155,39 @@ def scan_parameter_space(
         except TypeError:
             return eval_fn(*pt)
 
-    if workers > 1 and len(grid_points) > 1:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            outputs = list(pool.map(_eval_point, grid_points))
-    else:
-        outputs = [_eval_point(pt) for pt in grid_points]
+    active_stage = stage_name or os.environ.get("WORLD_C_STAGE_NAME")
+    tracker = None
+    if active_stage:
+        from ..persistence import StageTracker
+        tracker = StageTracker(stage_name=active_stage, auto_flush=False)
+
+    outputs: List[Any] = [None] * len(grid_points)
+    pending_indices: List[int] = []
+
+    for idx, pt in enumerate(grid_points):
+        pk = _pt_key(pt)
+        if tracker is not None and resume and tracker.is_done(pk):
+            outputs[idx] = tracker.get_stage(pk)
+        else:
+            pending_indices.append(idx)
+
+    if pending_indices:
+        batch_size = max(1, workers * 4)
+        for b_start in range(0, len(pending_indices), batch_size):
+            batch_idxs = pending_indices[b_start : b_start + batch_size]
+            batch_pts = [grid_points[i] for i in batch_idxs]
+            if workers > 1 and len(batch_pts) > 1:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    batch_outs = list(pool.map(_eval_point, batch_pts))
+            else:
+                batch_outs = [_eval_point(pt) for pt in batch_pts]
+
+            for i, out in zip(batch_idxs, batch_outs):
+                outputs[i] = out
+                if tracker is not None:
+                    tracker.save_stage(_pt_key(grid_points[i]), out)
+            if tracker is not None:
+                tracker.flush()
 
     results: Dict[str, List[Any]] = {k: [] for k in keys}
     out_records: Dict[str, List[Any]] = {}
@@ -175,41 +259,14 @@ def continuation_kuramoto(
     t_max: float = 12.0,
     dt: float = 0.05,
     seed: int = 42,
+    stage_name: Optional[str] = None,
+    resume: bool = True,
     **topology_kwargs: Any
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Numerical continuation of synchronization branches for coupled Kuramoto oscillators
     across network topologies. Carries forward final oscillator phases along the branch.
-
-    Parameters
-    ----------
-    N : int, default 50
-        Number of oscillators.
-    sigma : float, default 0.5
-        Width (scale) of natural frequency distribution.
-    topology : str, default 'scale-free'
-        Network architecture ('all-to-all', 'scale-free', 'small-world', 'erdos-renyi', 'ring', 'complete').
-    K_init : float, default 0.5
-        Starting coupling strength K.
-    K_max : float, default 3.0
-        Ending coupling strength K.
-    steps : int, default 40
-        Number of continuation steps between K_init and K_max.
-    t_max : float, default 12.0
-        Integration horizon per continuation step.
-    dt : float, default 0.05
-        RK4 integration timestep.
-    seed : int, default 42
-        Random seed.
-
-    Returns
-    -------
-    K_values : np.ndarray of shape (steps,)
-        Coupling strengths evaluated along the branch.
-    r_values : np.ndarray of shape (steps,)
-        Steady-state Kuramoto order parameter r(K) at each continuation point.
-    stability : np.ndarray of shape (steps,) of bool
-        Branch stability indicator (True when the synchronized manifold is transversely stable).
+    Supports optional stage checkpointing/resumption via `stage_name`.
     """
     from ..network_topology import generate_topology
     from ..dynamics.kuramoto import compute_order_parameter
@@ -235,6 +292,27 @@ def continuation_kuramoto(
     n_time_steps = max(20, int(t_max / dt))
     steady_window = max(5, n_time_steps // 3)
 
+    active_stage = stage_name or os.environ.get("WORLD_C_STAGE_NAME")
+    tracker = None
+    branch_key = f"cont_{topo_clean}_N{N}_sig{sigma:.5g}_K{K_init:.4g}_{K_max:.4g}_s{steps}_seed{seed}"
+    start_idx = 0
+
+    if active_stage:
+        from ..persistence import StageTracker
+        tracker = StageTracker(stage_name=active_stage, auto_flush=False)
+        if resume and tracker.is_done(branch_key):
+            saved = tracker.get_stage(branch_key)
+            if isinstance(saved, dict) and "last_idx" in saved:
+                last_idx = int(saved["last_idx"])
+                saved_r = np.asarray(saved.get("r_values", []), dtype=np.float64)
+                saved_stab = np.asarray(saved.get("stability", []), dtype=bool)
+                saved_theta = np.asarray(saved.get("theta", []), dtype=np.float64)
+                if len(saved_r) == len(K_values) and len(saved_theta) == N:
+                    r_values[:] = saved_r
+                    stability[:] = saved_stab
+                    theta = saved_theta.copy()
+                    start_idx = last_idx + 1
+
     def _rhs(th: np.ndarray, K_val: float) -> np.ndarray:
         if adj is None:
             z = np.mean(np.exp(1j * th))
@@ -244,7 +322,8 @@ def continuation_kuramoto(
         diff = th[None, :] - th[:, None]
         return omega + K_val * np.sum(adj * np.sin(diff), axis=1)
 
-    for idx, K_val in enumerate(K_values):
+    for idx in range(start_idx, len(K_values)):
+        K_val = K_values[idx]
         r_trace = np.empty(steady_window, dtype=np.float64)
         trace_pos = 0
         for step_i in range(n_time_steps):
@@ -267,6 +346,19 @@ def continuation_kuramoto(
 
         # Small perturbation to avoid getting trapped on unstable equilibria during continuation
         theta = np.mod(theta + rng.normal(0.0, 0.01, size=N), 2.0 * np.pi)
+
+        if tracker is not None and ((idx + 1) % 5 == 0 or idx == len(K_values) - 1):
+            tracker.save_stage(
+                branch_key,
+                {
+                    "last_idx": int(idx),
+                    "K_values": K_values,
+                    "r_values": r_values,
+                    "stability": stability,
+                    "theta": theta,
+                },
+            )
+            tracker.flush()
 
     return K_values, r_values, stability
 

@@ -3,7 +3,7 @@ Declarative Job Specification and Lifecycle Models for Compute Engine
 """
 
 from enum import Enum
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from typing import Dict, Any, List, Optional
 import time
 import uuid
@@ -29,6 +29,8 @@ class JobSpec:
     checkpoint_interval_seconds: int = 60
     env_vars: Dict[str, str] = field(default_factory=dict)
     output_artifacts: List[str] = field(default_factory=list)
+    stage_name: Optional[str] = None
+    resume_from_job_id: Optional[str] = None
     created_at: float = field(default_factory=time.time)
 
     def __post_init__(self):
@@ -40,6 +42,32 @@ class JobSpec:
             self.checkpoint_interval_seconds = int(self.checkpoint_interval_seconds)
         except (ValueError, TypeError):
             self.checkpoint_interval_seconds = 60
+        if not isinstance(self.parameters, dict):
+            self.parameters = {}
+        # Allow stage_name and resume_from_job_id to be passed either at top-level or inside parameters
+        if not self.stage_name:
+            for k in ("stage_name", "stage", "stage_id", "project_stage"):
+                if self.parameters.get(k):
+                    self.stage_name = str(self.parameters[k]).strip()
+                    break
+        if not self.resume_from_job_id:
+            for k in ("resume_from_job_id", "resume_from", "parent_job_id", "previous_job_id"):
+                if self.parameters.get(k):
+                    self.resume_from_job_id = str(self.parameters[k]).strip()
+                    break
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "JobSpec":
+        valid_keys = {f.name for f in fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_keys}
+        # Preserve any extra top-level keys inside parameters so nothing is lost
+        extra = {k: v for k, v in data.items() if k not in valid_keys}
+        if extra:
+            params = dict(filtered.get("parameters") or {})
+            for ek, ev in extra.items():
+                params.setdefault(ek, ev)
+            filtered["parameters"] = params
+        return cls(**filtered)
 
 @dataclass
 class JobResult:

@@ -4,12 +4,20 @@ Executes JobSpecs in dedicated workspaces, captures logs, monitors status, and s
 """
 
 import os
+import re
 import sys
 import json
 import time
+import shutil
 import subprocess
 from typing import Dict, Any, List, Optional
 from .job_spec import JobSpec, JobStatus, JobResult
+
+
+def _slugify_stage(text: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_\-\.]", "_", str(text or "default_stage").strip())
+    slug = re.sub(r"_+", "_", slug).strip("_.")
+    return (slug[:64] if slug else "default_stage")
 
 class ComputeDispatcher:
     def __init__(
@@ -26,6 +34,85 @@ class ComputeDispatcher:
 
     def _get_job_dir(self, job_id: str) -> str:
         return os.path.join(self.base_jobs_dir, job_id)
+
+    def _resolve_author_results_dir(self, spec: JobSpec) -> Optional[str]:
+        author = getattr(spec, "lineage_author", None)
+        realm = getattr(spec, "realm_source", "world_a")
+        if not author or author == "anonymous":
+            return None
+        if realm == "world_b" and self.world_b_root and os.path.exists(self.world_b_root):
+            return os.path.join(self.world_b_root, "instances", author, "agent_workspace", "world_c_results")
+        if self.world_a_root and os.path.exists(self.world_a_root):
+            return os.path.join(self.world_a_root, "instances", author, "agent_workspace", "world_c_results")
+        return None
+
+    def _resolve_stage_dir(self, spec: JobSpec) -> str:
+        stage_slug = _slugify_stage(spec.stage_name or spec.title or "default_stage")
+        author_res_dir = self._resolve_author_results_dir(spec)
+        if author_res_dir:
+            return os.path.join(author_res_dir, "stages", stage_slug)
+        author_slug = _slugify_stage(getattr(spec, "lineage_author", "anonymous"))
+        return os.path.join(self.base_jobs_dir, "_stages", author_slug, stage_slug)
+
+    def _preload_previous_stage_files(self, spec: JobSpec, job_dir: str) -> List[str]:
+        """
+        Pre-populates `job_dir` with artifacts and checkpoints from:
+        1. `spec.resume_from_job_id` (if specified), searching jobs/, shared artifacts/, and author world_c_results/
+        2. Persistent `stage_dir` when `spec.stage_name` is specified (or when stage checkpoints exist for this stage).
+        """
+        preloaded: List[str] = []
+        excluded = {
+            "spec.json", "result.json", "stdout.log", "stderr.log",
+            "worker.log", "entrypoint.py", "entrypoint.sh", "spec.json.processed",
+            "REPORT.md", "research_log.json"
+        }
+
+        def _copy_if_valid(src_file: str, dst_name: str):
+            if not os.path.isfile(src_file):
+                return
+            if dst_name in excluded or dst_name.endswith("_REPORT.md"):
+                return
+            dst_path = os.path.join(job_dir, dst_name)
+            if not os.path.exists(dst_path):
+                try:
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    shutil.copy2(src_file, dst_path)
+                    preloaded.append(dst_name)
+                except Exception:
+                    pass
+
+        # 1. Preload from explicit parent/previous job_id
+        prev_jid = getattr(spec, "resume_from_job_id", None)
+        if prev_jid:
+            prev_candidates = [os.path.join(self.base_jobs_dir, prev_jid)]
+            if self.world_a_root:
+                prev_candidates.append(
+                    os.path.join(self.world_a_root, "instances", "shared_space", "world_c", "artifacts", prev_jid)
+                )
+            if self.world_b_root:
+                prev_candidates.append(
+                    os.path.join(self.world_b_root, "instances", "shared_agora", "world_c", "artifacts", prev_jid)
+                )
+            for pdir in prev_candidates:
+                if os.path.isdir(pdir):
+                    for fname in os.listdir(pdir):
+                        _copy_if_valid(os.path.join(pdir, fname), fname)
+
+            author_res = self._resolve_author_results_dir(spec)
+            if author_res and os.path.isdir(author_res):
+                prefix = f"world_c_{prev_jid}_"
+                for fname in os.listdir(author_res):
+                    if fname.startswith(prefix):
+                        clean_name = fname[len(prefix):]
+                        _copy_if_valid(os.path.join(author_res, fname), clean_name)
+
+        # 2. Preload from persistent stage directory
+        stage_dir = self._resolve_stage_dir(spec)
+        if os.path.isdir(stage_dir):
+            for fname in os.listdir(stage_dir):
+                _copy_if_valid(os.path.join(stage_dir, fname), fname)
+
+        return preloaded
 
     def submit(self, spec: JobSpec) -> str:
         """Sets up job workspace and persists spec."""
@@ -101,7 +188,7 @@ try:
     realm = spec_data.get("realm_source", "world_a")
     author = spec_data.get("lineage_author")
     bridge.publish_completed_artifacts({repr(job_id)}, target_realms=[realm], lineage_author=author)
-    bridge.write_completion_report(res, JobSpec(**spec_data))
+    bridge.write_completion_report(res, JobSpec.from_dict(spec_data))
 except Exception as err:
     print(f"Error publishing artifacts: {{err}}")
 """
@@ -144,13 +231,20 @@ except Exception as err:
             
         with open(spec_path, "r", encoding="utf-8") as f:
             spec_data = json.load(f)
-        spec = JobSpec(**spec_data)
+        spec = JobSpec.from_dict(spec_data)
         
         result = JobResult(job_id=job_id, status=JobStatus.RUNNING, started_at=time.time())
         self._save_result(result)
         
         log_out_path = os.path.join(job_dir, "stdout.log")
         log_err_path = os.path.join(job_dir, "stderr.log")
+
+        stage_dir = self._resolve_stage_dir(spec)
+        os.makedirs(stage_dir, exist_ok=True)
+        author_res_dir = self._resolve_author_results_dir(spec)
+        if author_res_dir:
+            os.makedirs(author_res_dir, exist_ok=True)
+        self._preload_previous_stage_files(spec, job_dir)
         
         if spec.entrypoint.endswith(".sh"):
             cmd = ["bash", spec.entrypoint] + spec.arguments
@@ -158,6 +252,15 @@ except Exception as err:
             cmd = [sys.executable, spec.entrypoint] + spec.arguments
         env = os.environ.copy()
         env.update(spec.env_vars)
+        env["WORLD_C_JOB_ID"] = job_id
+        env["WORLD_C_STAGE_DIR"] = stage_dir
+        env["WORLD_C_DEFAULT_STAGE"] = _slugify_stage(spec.stage_name or spec.title or "default_stage")
+        if spec.stage_name:
+            env["WORLD_C_STAGE_NAME"] = spec.stage_name
+        if author_res_dir:
+            env["WORLD_C_RESULTS_DIR"] = author_res_dir
+        if spec.resume_from_job_id:
+            env["WORLD_C_RESUME_FROM_JOB_ID"] = spec.resume_from_job_id
         # Ensure world_c root is in PYTHONPATH and Python DLLs are prioritized
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         env["PYTHONPATH"] = root_dir + os.pathsep + env.get("PYTHONPATH", "")
@@ -182,9 +285,20 @@ except Exception as err:
                     result.exit_code = p.returncode
                     result.status = JobStatus.COMPLETED if p.returncode == 0 else JobStatus.FAILED
                 except subprocess.TimeoutExpired:
-                    p.kill()
+                    # Graceful asymptotic shutdown: allow StageTracker SIGTERM handler to flush checkpoints
+                    try:
+                        p.terminate()
+                        p.wait(timeout=3.0)
+                    except Exception:
+                        try:
+                            p.kill()
+                        except Exception:
+                            pass
                     result.status = JobStatus.FAILED
-                    result.error_message = f"Job timed out after {spec.timeout_seconds} seconds"
+                    result.error_message = (
+                        f"Job timed out after {spec.timeout_seconds} seconds "
+                        f"(graceful shutdown signal sent; any completed stage checkpoints were preserved in '{stage_dir}')"
+                    )
         except Exception as e:
             result.status = JobStatus.FAILED
             result.error_message = str(e)
@@ -216,7 +330,14 @@ except Exception as err:
                 if file in excluded_files:
                     continue
                 if file.endswith(valid_extensions):
-                    artifacts.append(os.path.relpath(os.path.join(root, file), job_dir))
+                    rel_art = os.path.relpath(os.path.join(root, file), job_dir)
+                    artifacts.append(rel_art)
+                    # Mirror generated data/checkpoint artifacts into the persistent stage_dir if stage_name is set
+                    if spec.stage_name and file.endswith((".npz", ".npy", ".json", ".csv", ".h5", ".hdf5", ".parquet")):
+                        try:
+                            shutil.copy2(os.path.join(root, file), os.path.join(stage_dir, file))
+                        except Exception:
+                            pass
         result.artifacts_generated = artifacts
         
         self._save_result(result)

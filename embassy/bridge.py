@@ -132,7 +132,7 @@ class EmbassyBridge:
                         if "realm_source" not in data or not data["realm_source"]:
                             data["realm_source"] = realm_name
                             
-                        spec = JobSpec(**data)
+                        spec = JobSpec.from_dict(data)
                         jid = self.dispatcher.submit(spec)
                         safe_print(f"[Embassy Bridge] Received job '{jid}' ('{spec.title}') from {realm_name} ({spec.lineage_author})")
                         
@@ -241,6 +241,37 @@ class EmbassyBridge:
         err_block = ""
         if result.stderr_tail.strip():
             err_block = f"### ⚠️ Errors / Warnings:\n```\n{result.stderr_tail.strip()}\n```\n\n---\n"
+
+        stage_block = ""
+        job_dir = os.path.join(self.world_c_root, "jobs", result.job_id)
+        cert_info = None
+        if os.path.isdir(job_dir):
+            for fname in os.listdir(job_dir):
+                if fname.endswith("_horizon_certificate.json"):
+                    try:
+                        with open(os.path.join(job_dir, fname), "r", encoding="utf-8") as cf:
+                            cert_info = json.load(cf)
+                        break
+                    except Exception:
+                        pass
+        if cert_info or getattr(spec, "stage_name", None) or getattr(spec, "resume_from_job_id", None):
+            sname = (cert_info or {}).get("stage_name") or getattr(spec, "stage_name", None) or "default_stage"
+            c_count = (cert_info or {}).get("completed_count", 0)
+            last_k = (cert_info or {}).get("last_completed_key")
+            prev_j = getattr(spec, "resume_from_job_id", None)
+            stage_lines = [
+                "## 🔄 Multi-Stage & Checkpoint Continuation",
+                f"* **Stage Name:** `{sname}`",
+            ]
+            if prev_j:
+                stage_lines.append(f"* **Resumed From Job:** `{prev_j}`")
+            if cert_info:
+                stage_lines.append(f"* **Completed Stage Slices Saved:** `{c_count}` (Last completed key: `{last_k}`)")
+            stage_lines.append(
+                f"* **To Resume / Build Next Stage:** Call `submit_world_c_job(..., stage_name='{sname}', resume_from_job_id='{result.job_id}')` "
+                f"and use `from colony_lib.persistence import StageTracker; tracker = StageTracker('{sname}')`."
+            )
+            stage_block = "\n".join(stage_lines) + "\n\n---\n\n"
             
         content = f"""# 🏛️ World C Execution Report: {spec.title}
 
@@ -251,7 +282,7 @@ class EmbassyBridge:
 
 ---
 
-## 📦 Generated Artifacts
+{stage_block}## 📦 Generated Artifacts
 {art_list}
 
 ---
@@ -387,7 +418,7 @@ class EmbassyBridge:
             try:
                 with open(spec_file, "r", encoding="utf-8") as f:
                     spec_data = json.load(f)
-                spec = JobSpec(**spec_data)
+                spec = JobSpec.from_dict(spec_data)
                 
                 res = self.dispatcher.get_result(jid)
                 if res and res.status == JobStatus.QUEUED:
@@ -418,7 +449,7 @@ class EmbassyBridge:
                     artifacts = []
                     for root, _, files in os.walk(jdir):
                         for file in files:
-                            if file.endswith((".png", ".jpg", ".csv", ".json", ".npz", ".h5")) and file not in ["spec.json", "result.json"]:
+                            if file.endswith((".png", ".jpg", ".csv", ".json", ".npz", ".npy", ".h5", ".parquet")) and file not in ["spec.json", "result.json"]:
                                 artifacts.append(os.path.relpath(os.path.join(root, file), jdir))
                     res.artifacts_generated = artifacts
                     res.finished_at = time.time()

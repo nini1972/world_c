@@ -45,6 +45,8 @@ from . import datasets
 from . import scaling
 from . import scaling_analysis
 from . import morphospace
+from . import persistence
+from .persistence import StageTracker, save_checkpoint, load_checkpoint, load_artifact, list_previous_artifacts
 
 __all__ = [
     "dynamics",
@@ -58,4 +60,10 @@ __all__ = [
     "scaling",
     "scaling_analysis",
     "morphospace",
+    "persistence",
+    "StageTracker",
+    "save_checkpoint",
+    "load_checkpoint",
+    "load_artifact",
+    "list_previous_artifacts",
 ]
