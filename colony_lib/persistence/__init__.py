@@ -273,6 +273,8 @@ class StageTracker:
         """Retrieves the stored data (including reconstructed NumPy arrays) for `slice_key`."""
         k = _normalize_key(slice_key)
         if k not in self._stages:
+            if k in ("results", "state", "data") and "init" in self._stages:
+                return self._unpack_value(self._stages["init"])
             return default
         return self._unpack_value(self._stages[k])
 

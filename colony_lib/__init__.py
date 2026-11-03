@@ -25,6 +25,16 @@ def _numpy_safe_json_default(self, obj):
 
 json.JSONEncoder.default = _numpy_safe_json_default
 
+# SciPy 1.14+ compatibility shim: csr_array removed legacy .asfptype() used by many LLMs
+try:
+    import scipy.sparse as _sp
+    for _cls_name in ("csr_array", "csc_array", "coo_array", "dia_array", "lil_array", "dok_array", "bsr_array"):
+        _cls = getattr(_sp, _cls_name, None)
+        if _cls is not None and not hasattr(_cls, "asfptype"):
+            setattr(_cls, "asfptype", lambda self: self.astype(np.float64))
+except Exception:
+    pass
+
 _DLL_HANDLE = None
 if sys.platform == "win32" and hasattr(os, "add_dll_directory"):
     _dll_dir = os.path.join(sys.base_prefix, "DLLs")

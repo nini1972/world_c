@@ -331,7 +331,8 @@ except Exception as err:
                     continue
                 if file.endswith(valid_extensions):
                     rel_art = os.path.relpath(os.path.join(root, file), job_dir)
-                    artifacts.append(rel_art)
+                    if rel_art not in artifacts and os.path.basename(file) not in {os.path.basename(a) for a in artifacts}:
+                        artifacts.append(rel_art)
                     # Mirror generated data/checkpoint artifacts into the persistent stage_dir if stage_name is set
                     if spec.stage_name and file.endswith((".npz", ".npy", ".json", ".csv", ".h5", ".hdf5", ".parquet")):
                         try:
