@@ -125,12 +125,36 @@ class ComputeDispatcher:
         if getattr(spec, "script_content", ""):
             # Rewrite absolute '/workspace/' paths to relative './' so containerized assumptions work natively
             cleaned_script = spec.script_content.replace("'/workspace/", "'./").replace('"/workspace/', '"./')
+            stripped = cleaned_script.strip()
+            if stripped.startswith("```") and stripped.endswith("```"):
+                lines = stripped.splitlines()
+                if len(lines) >= 2:
+                    cleaned_script = "\n".join(lines[1:-1]) + "\n"
             first_line = cleaned_script.lstrip().splitlines()[0] if cleaned_script.lstrip() else ""
             is_shell = first_line.startswith(("#!/bin/bash", "#!/usr/bin/env bash", "#!/bin/sh", "#!/usr/bin/env sh"))
             if not is_shell and cleaned_script.lstrip():
                 import ast
                 try:
-                    ast.parse(cleaned_script)
+                    tree = ast.parse(cleaned_script)
+                    # Unwrap accidental outer triple-quoted string wrapping the entire Python script
+                    if (
+                        len(tree.body) == 1
+                        and isinstance(tree.body[0], ast.Expr)
+                        and isinstance(getattr(tree.body[0], "value", None), ast.Constant)
+                        and isinstance(tree.body[0].value.value, str)
+                    ):
+                        s_raw = cleaned_script.strip()
+                        inner_code = s_raw[3:-3].strip() if (s_raw.startswith(('"""', "'''")) and s_raw.endswith(('"""', "'''"))) else tree.body[0].value.value.strip()
+                        try:
+                            inner_tree = ast.parse(inner_code)
+                            if len(inner_tree.body) >= 1 and not (
+                                len(inner_tree.body) == 1
+                                and isinstance(inner_tree.body[0], ast.Expr)
+                                and isinstance(getattr(inner_tree.body[0], "value", None), ast.Constant)
+                            ):
+                                cleaned_script = inner_code + "\n"
+                        except SyntaxError:
+                            pass
                 except SyntaxError:
                     # Check for obvious shell idioms when shebang was omitted
                     if any(line.strip().startswith(("set -e", "export ", "cp ", "md5sum ")) for line in cleaned_script.splitlines()[:10]):
