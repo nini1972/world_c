@@ -21,10 +21,25 @@ class Lenia2D:
         sigma_k: float = 0.15,
         mu_g: float = 0.135,
         sigma_g: float = 0.015,
-        dt: float = 0.1
+        dt: float = 0.1,
+        **kwargs
     ):
+        if "size" in kwargs:
+            grid_size = int(kwargs["size"])
+        elif "N" in kwargs:
+            grid_size = int(kwargs["N"])
+        if "R" in kwargs:
+            kernel_radius = int(kwargs["R"])
+        elif "radius" in kwargs:
+            kernel_radius = int(kwargs["radius"])
+        if "mu" in kwargs:
+            mu_g = float(kwargs["mu"])
+        if "sigma" in kwargs:
+            sigma_g = float(kwargs["sigma"])
         self.size = grid_size
+        self.grid_size = grid_size
         self.R = kernel_radius
+        self.kernel_radius = kernel_radius
         self.mu_k = mu_k
         self.sigma_k = sigma_k
         self.mu_g = mu_g
@@ -48,12 +63,19 @@ class Lenia2D:
         """Gaussian growth function G(u) mapping potential to state change rate [-1, 1]."""
         return 2.0 * np.exp(-((u - self.mu_g) ** 2) / (2.0 * self.sigma_g ** 2)) - 1.0
 
-    def step(self) -> np.ndarray:
-        """Executes a single continuous Euler integration step."""
-        u = fftconvolve(self.state, self.kernel, mode='same')
-        g = self.growth_function(u)
-        self.state = np.clip(self.state + self.dt * g, 0.0, 1.0)
+    def step(self, state: Optional[np.ndarray] = None, steps: int = 1) -> np.ndarray:
+        """Executes one or more continuous Euler integration steps, optionally accepting an input state array."""
+        if state is not None:
+            self.state = np.asarray(state, dtype=np.float64)
+        for _ in range(max(1, int(steps))):
+            u = fftconvolve(self.state, self.kernel, mode='same')
+            g = self.growth_function(u)
+            self.state = np.clip(self.state + self.dt * g, 0.0, 1.0)
         return self.state
+
+    def update(self, state: Optional[np.ndarray] = None, steps: int = 1) -> np.ndarray:
+        """Public alias for step(state, steps) supporting both stateful and functional Lenia updates."""
+        return self.step(state=state, steps=steps)
 
     def seed_orbium(self, center: Optional[Tuple[int, int]] = None):
         """Seeds a localized smooth circular Gaussian soliton blob."""
