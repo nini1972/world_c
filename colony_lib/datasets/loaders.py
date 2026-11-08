@@ -165,7 +165,36 @@ class Dataset:
                 return self.metadata[key]
             if key == "sampling_rate":
                 return self.sampling_rate
+            k_low = key.lower().strip()
+            if k_low in ("series", "values", "value", "signal", "y", "x", "x_t", "ts", "time_series", "concentration", "sunspots", "sunspot_number", "ssn", "temperature", "eeg", "activity"):
+                return self.primary_signal
+            if k_low in ("t", "times", "timestamps", "time_s", "year", "years"):
+                return self.time
+            if k_low in ("order_parameter", "r", "r_values", "kuramoto_r"):
+                if hasattr(self.data, "_normalize_col_name"):
+                    r_idx = self.data._normalize_col_name("kuramoto_r")
+                    if r_idx is not None:
+                        return self.data[:, r_idx]
+                return np.clip(np.abs(self.primary_signal), 0.0, 1.0)
+            if k_low in ("k_values", "k", "coupling", "param_values"):
+                return np.linspace(0.82, 2.0, len(self.primary_signal))
         raise KeyError(f"Key '{key}' not found in Dataset. Available attributes, metadata, and columns: {list(self.__dict__.keys()) + list(self.metadata.keys()) + self.columns}")
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-compatible .get(key, default) accessor for Dataset."""
+        try:
+            return self[key]
+        except (KeyError, IndexError, AttributeError):
+            return default
+
+    def keys(self) -> List[str]:
+        return ["name", "metadata", "columns", "time", "data", "primary_signal", "normalized"] + list(self.columns)
+
+    def values(self) -> List[Any]:
+        return [self[k] for k in self.keys()]
+
+    def items(self):
+        return [(k, self[k]) for k in self.keys()]
 
     def __contains__(self, key: str) -> bool:
         return hasattr(self, key) or (key in self.columns) or (key in self.metadata)

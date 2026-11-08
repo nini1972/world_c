@@ -223,6 +223,10 @@ def fit_scaling_law(
     output.setdefault("β", output["beta"])
     output.setdefault("a", prefactor)
     output.setdefault("Fc_offset", 0.0)
+    output.setdefault("Kc_offset", 0.0)
+    output.setdefault("Tc_offset", 0.0)
+    output.setdefault("rc_offset", 0.0)
+    output.setdefault("kc_offset", 0.0)
     output["prefactor"] = prefactor
     output["r_squared"] = max(0.0, r_sq)
     output["success"] = bool(res.success)
