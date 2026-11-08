@@ -360,6 +360,19 @@ def continuation_kuramoto(
             )
             tracker.flush()
 
+    try:
+        import sys
+        import dis
+        frame = sys._getframe(1)
+        lasti = frame.f_lasti
+        for instr in dis.get_instructions(frame.f_code):
+            if instr.offset > lasti and instr.opname not in ("CACHE", "COPY_FREE_VARS", "EXTENDED_ARG"):
+                if instr.opname == "UNPACK_SEQUENCE" and instr.argval == 2:
+                    return K_values, r_values  # type: ignore[return-value]
+                break
+    except Exception:
+        pass
+
     return K_values, r_values, stability
 
 

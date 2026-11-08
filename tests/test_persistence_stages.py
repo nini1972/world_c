@@ -171,6 +171,55 @@ if len(all_res) == len(slices):
         shutil.rmtree(tmp_root, ignore_errors=True)
 
 
+def test_cross_instance_stage_reading():
+    tmp_root = tempfile.mkdtemp(prefix="wc_cross_inst_")
+    jobs_dir = os.path.join(tmp_root, "jobs")
+    world_a_dir = os.path.join(tmp_root, "world_a")
+    gem_ws = os.path.join(world_a_dir, "instances", "gemini_3_1_flash_lite", "agent_workspace", "world_c_results")
+    pool_ws = os.path.join(world_a_dir, "instances", "poolside_laguna", "agent_workspace", "world_c_results")
+    os.makedirs(gem_ws, exist_ok=True)
+    os.makedirs(pool_ws, exist_ok=True)
+    os.makedirs(os.path.join(world_a_dir, "instances", "shared_space"), exist_ok=True)
+
+    try:
+        # 1. gemini_3_1_flash_lite saves a 2D Gray-Scott bifurcation grid in its stage directory
+        gem_stage_dir = os.path.join(gem_ws, "stages", "gs_bifurcation_scan")
+        t_gem = StageTracker("gs_bifurcation_scan", checkpoint_dir=gem_stage_dir, register_signals=False)
+        for F in [0.02, 0.03, 0.04]:
+            for k in [0.05, 0.06]:
+                t_gem.save_stage(f"{F:.2f}__{k:.2f}", {"variance": float(F * k), "mean": float(1.0 - F)})
+
+        # 2. poolside_laguna runs a World C job loading StageTracker('gs_bifurcation_scan').load_stage('final')
+        dispatcher = ComputeDispatcher(base_jobs_dir=jobs_dir, world_a_root=world_a_dir)
+        pool_script = """
+import numpy as np
+from colony_lib.persistence import StageTracker
+
+tracker = StageTracker('gs_bifurcation_scan')
+data = tracker.load_stage('final')
+F_values = data['F_values']
+k_values = data['k_values']
+variance = data['variance']
+assert len(F_values) == 3 and len(k_values) == 2
+assert variance.shape == (3, 2)
+print('CROSS_INSTANCE_STAGE_OK', F_values.tolist(), k_values.tolist(), flush=True)
+"""
+        spec_pool = JobSpec(
+            job_id="job_pool_handoff",
+            title="Cross-Instance Stage Handoff Test",
+            lineage_author="poolside_laguna",
+            realm_source="world_a",
+            script_content=pool_script,
+            stage_name="gs_scaling_collapse",
+        )
+        dispatcher.submit(spec_pool)
+        res_pool = dispatcher.execute_sync("job_pool_handoff")
+        assert res_pool.status == JobStatus.COMPLETED, f"Stderr: {res_pool.stderr_tail}"
+        assert "CROSS_INSTANCE_STAGE_OK" in res_pool.stdout_tail
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_stage_tracker_arrays_and_resume()
     print("[PASS] test_stage_tracker_arrays_and_resume")
@@ -178,4 +227,6 @@ if __name__ == "__main__":
     print("[PASS] test_scan_parameter_space_stage_caching")
     test_dispatcher_timeout_and_multi_stage_resumption()
     print("[PASS] test_dispatcher_timeout_and_multi_stage_resumption")
+    test_cross_instance_stage_reading()
+    print("[PASS] test_cross_instance_stage_reading")
     print("All multi-stage persistence tests passed!")

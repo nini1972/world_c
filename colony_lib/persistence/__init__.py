@@ -77,6 +77,8 @@ class StageTracker:
         checkpoint_dir: Optional[str] = None,
         auto_flush: bool = True,
         register_signals: bool = True,
+        peer_instance: Optional[str] = None,
+        **kwargs: Any,
     ):
         env_stage_name = os.environ.get("WORLD_C_STAGE_NAME") or os.environ.get("WORLD_C_DEFAULT_STAGE")
         resolved_name = stage_name or env_stage_name or "default_stage"
@@ -85,6 +87,12 @@ class StageTracker:
         self.auto_flush = bool(auto_flush)
         self.started_at = time.time()
         self.job_id = os.environ.get("WORLD_C_JOB_ID", "local_run")
+        self.peer_instance = (
+            peer_instance
+            or kwargs.get("from_instance")
+            or kwargs.get("source_instance")
+            or kwargs.get("instance")
+        )
 
         # 1. Local job working directory (so standard World C artifact harvesting picks up outputs)
         self.local_dir = os.path.abspath(checkpoint_dir if checkpoint_dir else ".")
@@ -110,6 +118,22 @@ class StageTracker:
         local_ws_stage = os.path.abspath(os.path.join(self.local_dir, "world_c_results", "stages", self.stage_slug))
         if os.path.exists(os.path.join(self.local_dir, "world_c_results")) and local_ws_stage not in self.mirror_dirs:
             self.mirror_dirs.append(local_ws_stage)
+
+        # Also mirror to shared_space / shared_agora world_c/stages/<stage_slug> when inside an instances tree
+        for base_cand in [env_results_dir, self.local_dir]:
+            if not base_cand:
+                continue
+            abs_c = os.path.abspath(base_cand)
+            parts = abs_c.replace("\\", "/").split("/")
+            if "instances" in parts:
+                idx = parts.index("instances")
+                inst_root = "/".join(parts[: idx + 1])
+                for shared_name in ("shared_space", "shared_agora"):
+                    sh_root = os.path.join(inst_root, shared_name)
+                    if os.path.exists(sh_root):
+                        sh_stage = os.path.abspath(os.path.join(sh_root, "world_c", "stages", self.stage_slug))
+                        if sh_stage not in self.mirror_dirs:
+                            self.mirror_dirs.append(sh_stage)
 
         for mdir in self.mirror_dirs:
             try:
@@ -183,6 +207,63 @@ class StageTracker:
             ad = os.path.abspath(d)
             if ad not in dirs and os.path.exists(ad):
                 dirs.append(ad)
+
+        # Cross-instance stage discovery: search shared_space/shared_agora stages and peer instances' stage directories
+        instances_roots: List[str] = []
+        for env_k in ("WORLD_C_RESULTS_DIR", "WORLD_C_STAGE_DIR", "WORLD_A_ROOT", "WORLD_B_ROOT"):
+            val = os.environ.get(env_k)
+            if not val:
+                continue
+            abs_v = os.path.abspath(val)
+            norm_parts = abs_v.replace("\\", "/").split("/")
+            if "instances" in norm_parts:
+                idx = norm_parts.index("instances")
+                i_root = os.path.abspath("/".join(norm_parts[: idx + 1]))
+                if os.path.isdir(i_root) and i_root not in instances_roots:
+                    instances_roots.append(i_root)
+            elif os.path.isdir(os.path.join(abs_v, "instances")):
+                i_root = os.path.abspath(os.path.join(abs_v, "instances"))
+                if i_root not in instances_roots:
+                    instances_roots.append(i_root)
+
+        # Also infer instances root relative to local_dir (whether in agent_workspace or world_c/jobs/<job_id>)
+        for rel in (
+            os.path.join(self.local_dir, "..", ".."),
+            os.path.join(self.local_dir, "..", "..", "instances"),
+            os.path.join(self.local_dir, "..", "..", "..", "instances"),
+        ):
+            cand = os.path.abspath(rel)
+            if os.path.basename(cand) == "instances" and os.path.isdir(cand) and cand not in instances_roots:
+                instances_roots.append(cand)
+
+        for i_root in instances_roots:
+            # 1. Explicit peer_instance first if requested
+            if self.peer_instance:
+                peer_st = os.path.abspath(
+                    os.path.join(i_root, str(self.peer_instance), "agent_workspace", "world_c_results", "stages", self.stage_slug)
+                )
+                if os.path.isdir(peer_st) and peer_st not in dirs:
+                    dirs.append(peer_st)
+
+            # 2. Shared stage directories
+            for sh_name in ("shared_space", "shared_agora"):
+                sh_st = os.path.abspath(os.path.join(i_root, sh_name, "world_c", "stages", self.stage_slug))
+                if os.path.isdir(sh_st) and sh_st not in dirs:
+                    dirs.append(sh_st)
+
+            # 3. Any colleague instance that has saved this stage_slug
+            try:
+                for entry in sorted(os.listdir(i_root)):
+                    if entry in ("shared_space", "shared_agora"):
+                        continue
+                    peer_st = os.path.abspath(
+                        os.path.join(i_root, entry, "agent_workspace", "world_c_results", "stages", self.stage_slug)
+                    )
+                    if os.path.isdir(peer_st) and peer_st not in dirs:
+                        dirs.append(peer_st)
+            except Exception:
+                pass
+
         return dirs
 
     def _load_existing(self) -> None:
@@ -269,17 +350,102 @@ class StageTracker:
     def __setitem__(self, slice_key: Any, data: Any) -> None:
         self.save_stage(slice_key, data)
 
-    def get_stage(self, slice_key: Any, default: Any = None) -> Any:
+    def _synthesize_aggregate_stage(self) -> Dict[str, Any]:
+        """
+        Synthesizes an aggregate dictionary when a colleague calls `load_stage('final')`,
+        `load_stage('all')`, or `load_state()` on a multi-slice parameter sweep stage.
+        Reconstructs 1D parameter vectors (e.g. `F_values`, `k_values`) and 2D/1D metric arrays
+        alongside all individual slice entries.
+        """
+        all_unpacked = self.get_all_stages()
+        if len(all_unpacked) == 1:
+            only_val = next(iter(all_unpacked.values()))
+            if isinstance(only_val, dict):
+                return {**only_val, "stages": all_unpacked}
+
+        agg: Dict[str, Any] = dict(all_unpacked)
+        agg["stages"] = all_unpacked
+        agg["completed_keys"] = list(all_unpacked.keys())
+
+        # Check if keys represent a 2D parameter grid: either "0.01__0.04" or "grid__F=0.01__k=0.04"
+        parsed_pairs: List[Tuple[float, float, str, Optional[str], Optional[str]]] = []
+        for k, v in all_unpacked.items():
+            if not isinstance(v, dict):
+                continue
+            k_str = str(k)
+            if k_str.startswith("grid__"):
+                parts = k_str[len("grid__"):].split("__")
+                if len(parts) == 2 and "=" in parts[0] and "=" in parts[1]:
+                    n1, v1 = parts[0].split("=", 1)
+                    n2, v2 = parts[1].split("=", 1)
+                    try:
+                        parsed_pairs.append((float(v1), float(v2), k, n1, n2))
+                    except ValueError:
+                        pass
+            elif "__" in k_str:
+                parts = k_str.split("__")
+                if len(parts) == 2:
+                    try:
+                        parsed_pairs.append((float(parts[0]), float(parts[1]), k, None, None))
+                    except ValueError:
+                        pass
+
+        if len(parsed_pairs) >= 2:
+            p1_unique = np.array(sorted({p[0] for p in parsed_pairs}), dtype=np.float64)
+            p2_unique = np.array(sorted({p[1] for p in parsed_pairs}), dtype=np.float64)
+            n1_name = parsed_pairs[0][3] or "F"
+            n2_name = parsed_pairs[0][4] or "k"
+            agg["param1_values"] = p1_unique
+            agg["param2_values"] = p2_unique
+            agg["F_values"] = p1_unique
+            agg["k_values"] = p2_unique
+            agg[f"{n1_name}_values"] = p1_unique
+            agg[f"{n2_name}_values"] = p2_unique
+            agg[n1_name] = p1_unique
+            agg[n2_name] = p2_unique
+
+            sample_dict = all_unpacked[parsed_pairs[0][2]]
+            if isinstance(sample_dict, dict):
+                p1_idx_map = {val: i for i, val in enumerate(p1_unique)}
+                p2_idx_map = {val: j for j, val in enumerate(p2_unique)}
+                for metric_k, metric_v in sample_dict.items():
+                    if isinstance(metric_v, (int, float, np.number)):
+                        grid = np.full((len(p1_unique), len(p2_unique)), np.nan, dtype=np.float64)
+                        for pv1, pv2, orig_k, _, _ in parsed_pairs:
+                            entry = all_unpacked.get(orig_k, {})
+                            if isinstance(entry, dict) and metric_k in entry:
+                                try:
+                                    grid[p1_idx_map[pv1], p2_idx_map[pv2]] = float(entry[metric_k])
+                                except Exception:
+                                    pass
+                        agg[metric_k] = grid
+
+        if self._checkpoint_state is not None:
+            ckpt = self.load_checkpoint()
+            if isinstance(ckpt, dict):
+                for ck, cv in ckpt.items():
+                    agg.setdefault(ck, cv)
+
+        return agg
+
+    def get_stage(self, slice_key: Any = "final", default: Any = None) -> Any:
         """Retrieves the stored data (including reconstructed NumPy arrays) for `slice_key`."""
         k = _normalize_key(slice_key)
         if k not in self._stages:
-            if k in ("results", "state", "data") and "init" in self._stages:
-                return self._unpack_value(self._stages["init"])
+            if k in ("results", "state", "data", "final", "all", "summary", "grid"):
+                if "init" in self._stages and len(self._stages) == 1:
+                    return self._unpack_value(self._stages["init"])
+                if self._stages or self._checkpoint_state is not None:
+                    return self._synthesize_aggregate_stage()
             return default
         return self._unpack_value(self._stages[k])
 
     load_stage = get_stage
     get = get_stage
+
+    def load_state(self, slice_key: Any = "final", default: Any = None) -> Any:
+        """Loads either the requested stage slice or the synthesized aggregate stage state."""
+        return self.get_stage(slice_key=slice_key, default=default)
 
     def __getitem__(self, slice_key: Any) -> Any:
         k = _normalize_key(slice_key)

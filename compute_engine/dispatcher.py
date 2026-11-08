@@ -99,18 +99,48 @@ class ComputeDispatcher:
                         _copy_if_valid(os.path.join(pdir, fname), fname)
 
             author_res = self._resolve_author_results_dir(spec)
-            if author_res and os.path.isdir(author_res):
-                prefix = f"world_c_{prev_jid}_"
-                for fname in os.listdir(author_res):
-                    if fname.startswith(prefix):
-                        clean_name = fname[len(prefix):]
-                        _copy_if_valid(os.path.join(author_res, fname), clean_name)
+            search_res_dirs = [author_res] if author_res else []
+            # Cross-instance job resumption: also search peer instances if prev_jid belonged to a colleague
+            for w_root in (self.world_a_root, self.world_b_root):
+                if w_root and os.path.isdir(os.path.join(w_root, "instances")):
+                    inst_dir = os.path.join(w_root, "instances")
+                    for inst_name in sorted(os.listdir(inst_dir)):
+                        if inst_name in ("shared_space", "shared_agora"):
+                            continue
+                        p_res = os.path.join(inst_dir, inst_name, "agent_workspace", "world_c_results")
+                        if os.path.isdir(p_res) and p_res not in search_res_dirs:
+                            search_res_dirs.append(p_res)
 
-        # 2. Preload from persistent stage directory
+            prefix = f"world_c_{prev_jid}_"
+            for res_d in search_res_dirs:
+                if res_d and os.path.isdir(res_d):
+                    for fname in os.listdir(res_d):
+                        if fname.startswith(prefix):
+                            clean_name = fname[len(prefix):]
+                            _copy_if_valid(os.path.join(res_d, fname), clean_name)
+
+        # 2. Preload from persistent stage directory (and cross-instance peer stage directories if present)
         stage_dir = self._resolve_stage_dir(spec)
-        if os.path.isdir(stage_dir):
-            for fname in os.listdir(stage_dir):
-                _copy_if_valid(os.path.join(stage_dir, fname), fname)
+        stage_slug = _slugify_stage(spec.stage_name or spec.title or "default_stage")
+        candidate_stage_dirs = [stage_dir]
+        for w_root in (self.world_a_root, self.world_b_root):
+            if w_root and os.path.isdir(os.path.join(w_root, "instances")):
+                inst_dir = os.path.join(w_root, "instances")
+                for sh_name in ("shared_space", "shared_agora"):
+                    sh_st = os.path.join(inst_dir, sh_name, "world_c", "stages", stage_slug)
+                    if os.path.isdir(sh_st) and sh_st not in candidate_stage_dirs:
+                        candidate_stage_dirs.append(sh_st)
+                for inst_name in sorted(os.listdir(inst_dir)):
+                    if inst_name in ("shared_space", "shared_agora"):
+                        continue
+                    peer_st = os.path.join(inst_dir, inst_name, "agent_workspace", "world_c_results", "stages", stage_slug)
+                    if os.path.isdir(peer_st) and peer_st not in candidate_stage_dirs:
+                        candidate_stage_dirs.append(peer_st)
+
+        for sdir in candidate_stage_dirs:
+            if os.path.isdir(sdir):
+                for fname in os.listdir(sdir):
+                    _copy_if_valid(os.path.join(sdir, fname), fname)
 
         return preloaded
 

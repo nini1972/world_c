@@ -85,6 +85,30 @@ class Lenia2D:
         d = np.sqrt((x - cx)**2 + (y - cy)**2)
         blob = np.exp(-(d**2) / (2.0 * (self.R * 0.7)**2))
         self.state = np.clip(blob, 0.0, 1.0)
+        return self.state
+
+    def initialize_random(
+        self,
+        seed: Optional[int] = None,
+        density: float = 0.5,
+        low: float = 0.0,
+        high: float = 1.0,
+    ) -> np.ndarray:
+        """Initializes and returns a reproducible random 2D state in [low, high]."""
+        rng = np.random.default_rng(seed)
+        raw = rng.uniform(float(low), float(high), size=(self.size, self.size))
+        if 0.0 < float(density) < 1.0:
+            mask = rng.random((self.size, self.size)) < float(density)
+            raw = raw * mask
+        self.state = np.clip(raw, 0.0, 1.0).astype(np.float64)
+        return self.state
+
+    def reset(self, seed: Optional[int] = None) -> np.ndarray:
+        """Resets the Lenia grid to zeros (or random state if seed is provided)."""
+        if seed is not None:
+            return self.initialize_random(seed=seed)
+        self.state = np.zeros((self.size, self.size), dtype=np.float64)
+        return self.state
 
     def run(self, steps: int = 50) -> Dict[str, Any]:
         """Runs the simulation for N steps and returns trajectory metrics."""
