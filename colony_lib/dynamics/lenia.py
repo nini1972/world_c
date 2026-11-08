@@ -28,6 +28,8 @@ class Lenia2D:
             grid_size = int(kwargs["size"])
         elif "N" in kwargs:
             grid_size = int(kwargs["N"])
+        elif "resolution" in kwargs:
+            grid_size = int(kwargs["resolution"])
         if "R" in kwargs:
             kernel_radius = int(kwargs["R"])
         elif "radius" in kwargs:
@@ -38,6 +40,7 @@ class Lenia2D:
             sigma_g = float(kwargs["sigma"])
         self.size = grid_size
         self.grid_size = grid_size
+        self.resolution = grid_size
         self.R = kernel_radius
         self.kernel_radius = kernel_radius
         self.mu_k = mu_k
@@ -45,6 +48,8 @@ class Lenia2D:
         self.mu_g = mu_g
         self.sigma_g = sigma_g
         self.dt = dt
+        self.T = int(kwargs.get("T", kwargs.get("steps", 50)))
+        self.r = float(kwargs.get("r", 1.0))
         self.kernel = self._build_gaussian_kernel()
         self.state = np.zeros((grid_size, grid_size), dtype=np.float64)
 
@@ -61,7 +66,8 @@ class Lenia2D:
 
     def growth_function(self, u: np.ndarray) -> np.ndarray:
         """Gaussian growth function G(u) mapping potential to state change rate [-1, 1]."""
-        return 2.0 * np.exp(-((u - self.mu_g) ** 2) / (2.0 * self.sigma_g ** 2)) - 1.0
+        r_gain = float(getattr(self, "r", 1.0))
+        return (2.0 * r_gain) * np.exp(-((u - self.mu_g) ** 2) / (2.0 * self.sigma_g ** 2)) - 1.0
 
     def step(self, state: Optional[np.ndarray] = None, steps: int = 1) -> np.ndarray:
         """Executes one or more continuous Euler integration steps, optionally accepting an input state array."""
@@ -102,6 +108,17 @@ class Lenia2D:
             raw = raw * mask
         self.state = np.clip(raw, 0.0, 1.0).astype(np.float64)
         return self.state
+
+    initialize_state = initialize_random
+    init_state = initialize_random
+    init_random = initialize_random
+
+    def simulate(self, state: Optional[np.ndarray] = None, steps: Optional[int] = None) -> np.ndarray:
+        """Simulates Lenia from `state` for `steps` (or `self.T`, capped at 100 steps for fast sweeps) and returns final state."""
+        if state is not None:
+            self.state = np.asarray(state, dtype=np.float64)
+        n_steps = int(steps if steps is not None else min(int(getattr(self, "T", 50)), 100))
+        return self.step(steps=max(1, n_steps))
 
     def reset(self, seed: Optional[int] = None) -> np.ndarray:
         """Resets the Lenia grid to zeros (or random state if seed is provided)."""
