@@ -137,6 +137,16 @@ class Dataset:
                 return float(1.0 / dt)
         return None
 
+    @property
+    def fs(self) -> Optional[float]:
+        """Alias for sampling_rate."""
+        return self.sampling_rate
+
+    @property
+    def channels(self) -> List[str]:
+        """Alias for columns."""
+        return self.columns
+
     def __len__(self) -> int:
         """Returns the number of time-series observations."""
         return len(self.primary_signal)

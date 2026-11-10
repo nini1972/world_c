@@ -224,8 +224,28 @@ class KuramotoEnsemble:
         self.times = times
         return times, r_series.tolist()
 
-    def simulate(self, T: float = 50.0, dt: Optional[float] = None, K: Optional[float] = None, **kwargs) -> Tuple[np.ndarray, list]:
-        """Alias for run(T, dt) returning (times, order_parameters)."""
+    def simulate(self, T: Any = 50.0, dt: Optional[float] = None, K: Optional[float] = None, **kwargs) -> Any:
+        """Alias for run(T, dt) returning (times, order_parameters), or 2D phase trajectory
+        `self.phases` (shape: (n_steps, N)) when a 1D initial phase vector `theta0` is passed
+        as the first positional argument `ensemble.simulate(theta0, T, dt)`."""
+        if isinstance(T, (np.ndarray, list, tuple)):
+            self.theta = np.asarray(T, dtype=np.float64).copy()
+            if "t_max" in kwargs or "T" in kwargs:
+                t_max_val = float(kwargs.pop("t_max", kwargs.pop("T", 50.0)))
+                dt_val = float(dt) if dt is not None else float(kwargs.pop("dt", self.dt))
+                k_val = float(K) if K is not None else None
+            elif dt is not None and float(dt) > 1.0:
+                t_max_val = float(dt)
+                dt_val = float(K) if (K is not None and float(K) <= 1.0) else float(kwargs.pop("dt", self.dt))
+                k_val = float(K) if (K is not None and float(K) > 1.0) else None
+            else:
+                t_max_val = 50.0
+                dt_val = float(dt) if dt is not None else float(self.dt)
+                k_val = float(K) if K is not None else None
+            self.run(t_max=t_max_val, dt=dt_val, K=k_val, **kwargs)
+            return self.phases
+        if "t_max" in kwargs:
+            T = kwargs.pop("t_max")
         return self.run(t_max=T, dt=dt, K=K, **kwargs)
 
     def step(self, dt: Optional[float] = None, K: Optional[float] = None) -> float:
