@@ -137,9 +137,12 @@ class KuramotoEnsemble:
         # Detect legacy positional call: KuramotoEnsemble(N, K, natural_frequencies, dt)
         if natural_frequencies is not None and np.ndim(natural_frequencies) == 0:
             self.K = float(natural_frequencies)
-            if coupling_matrix is not None and np.ndim(coupling_matrix) == 1:
-                natural_frequencies = coupling_matrix
-                coupling_matrix = None
+            self.coupling = self.K
+            if coupling_matrix is not None:
+                c_mat = np.asarray(coupling_matrix)
+                if c_mat.ndim in (0, 1):
+                    natural_frequencies = coupling_matrix
+                    coupling_matrix = None
             else:
                 natural_frequencies = None
             if isinstance(freq_distribution, (int, float, np.floating, np.integer)):
@@ -166,7 +169,11 @@ class KuramotoEnsemble:
             else:
                 raise ValueError(f"Unknown frequency distribution: {freq_distribution}")
                 
-        self.A = np.asarray(coupling_matrix, dtype=np.float64) if coupling_matrix is not None else None
+        if coupling_matrix is not None:
+            c_arr = np.asarray(coupling_matrix, dtype=np.float64)
+            self.A = c_arr if c_arr.ndim == 2 else None
+        else:
+            self.A = None
         self.theta = self.rng.uniform(-np.pi, np.pi, size=self.N).astype(np.float64)
         self.phases: np.ndarray = np.empty((0, self.N), dtype=np.float64)
         self.r_series: np.ndarray = np.empty(0, dtype=np.float64)
@@ -259,9 +266,21 @@ class KuramotoEnsemble:
         r, _ = compute_order_parameter(self.theta)
         return float(r)
 
-    def order_parameter(self) -> float:
-        """Returns current scalar Kuramoto order parameter r."""
-        th = self.phases if (isinstance(self.phases, np.ndarray) and self.phases.ndim == 1 and len(self.phases) == self.N) else self.theta
+    def set_K(self, K: float):
+        """Updates coupling strength K."""
+        self.K = float(K)
+        self.coupling = float(K)
+
+    def set_k(self, K: float):
+        """Alias for set_K."""
+        self.set_K(K)
+
+    def order_parameter(self, state_or_t: Any = None) -> float:
+        """Returns current scalar Kuramoto order parameter r. Optionally accepts a phase array or evaluation timestamp."""
+        if state_or_t is not None and isinstance(state_or_t, (np.ndarray, list, tuple)) and len(state_or_t) == self.N:
+            th = np.asarray(state_or_t, dtype=np.float64)
+        else:
+            th = self.phases if (isinstance(self.phases, np.ndarray) and self.phases.ndim == 1 and len(self.phases) == self.N) else self.theta
         r, _ = compute_order_parameter(th)
         return float(r)
         

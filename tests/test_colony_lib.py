@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from colony_lib.dynamics.kuramoto import simulate_kuramoto, compute_order_parameter
+from colony_lib.dynamics.kuramoto import simulate_kuramoto, compute_order_parameter, KuramotoEnsemble
 from colony_lib.dynamics.solitons import simulate_phi4_collision
 from colony_lib.dynamics.gray_scott import simulate_gray_scott
 from colony_lib.dynamics.cml import coupled_map_lattice, coupled_logistic_map
@@ -20,6 +20,30 @@ def test_kuramoto_simulation():
     assert res["N"] == 50
     assert len(res["times"]) == len(res["r_series"])
     assert 0.0 <= res["steady_mean_r"] <= 1.0
+
+def test_kuramoto_ensemble_compat():
+    # Test positional call with scalar omega: KuramotoEnsemble(N, K, omega)
+    ens = KuramotoEnsemble(50, 0.5, 1.0)
+    assert ens.N == 50
+    assert ens.K == 0.5
+    assert ens.A is None
+    assert np.allclose(ens.omega, 1.0)
+    
+    # Test set_K and set_k
+    ens.set_K(1.5)
+    assert ens.K == 1.5
+    ens.set_k(2.0)
+    assert ens.K == 2.0
+    
+    # Test order_parameter with evaluation arg
+    r0 = ens.order_parameter()
+    r1 = ens.order_parameter(50.0)
+    assert r0 == r1
+    assert 0.0 <= r0 <= 1.0
+    
+    # Test simulation run
+    times, r = ens.run(t_max=2.0, dt=0.1)
+    assert len(times) == len(r)
 
 def test_solitons_simulation():
     res = simulate_phi4_collision(v=0.25, x0=8.0, t_max=15.0, N_grid=128, L=30.0, dt=0.05)
