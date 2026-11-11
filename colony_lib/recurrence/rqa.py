@@ -33,6 +33,10 @@ def recurrence_matrix(
     pts = np.asarray(embedded_points, dtype=float)
     if pts.ndim == 1:
         pts = pts[:, None]
+    max_points = int(kwargs.get("max_points", 4000))
+    if len(pts) > max_points:
+        stride = max(1, int(np.ceil(len(pts) / max_points)))
+        pts = pts[::stride]
     dists = squareform(pdist(pts, metric=metric))
 
     rr_target = target_rr if target_rr is not None else (fixed_rr if fixed_rr is not None else kwargs.get("rr"))
@@ -155,6 +159,10 @@ class RecurrencePlot:
         embed_m = int(m) if m is not None else int(dim)
         arr = np.asarray(series, dtype=float)
         self.embedded = takens_embedding(arr, m=embed_m, tau=int(tau)) if (arr.ndim == 1 and embed_m > 1) else (arr[:, None] if arr.ndim == 1 else arr)
+        max_points = int(kwargs.get("max_points", 4000))
+        if len(self.embedded) > max_points:
+            stride = max(1, int(np.ceil(len(self.embedded) / max_points)))
+            self.embedded = self.embedded[::stride]
         self.distance_matrix = squareform(pdist(self.embedded, metric=kwargs.get("metric", "euclidean")))
         eps_val = epsilon if epsilon is not None else eps
         self.epsilon = float(eps_val) if eps_val is not None else float(0.1 * np.mean(self.distance_matrix) if self.distance_matrix.size else 0.1)
