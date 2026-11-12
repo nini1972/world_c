@@ -101,9 +101,16 @@ class GrayScott2D:
         F: float = 0.035,
         k: float = 0.060,
         dt: float = 1.0,
-        dx: float = 1.0
+        dx: float = 1.0,
+        N: Optional[int] = None,
+        size: Optional[int] = None,
+        **kwargs
     ):
-        self.N = grid_size
+        if N is not None:
+            grid_size = int(N)
+        elif size is not None:
+            grid_size = int(size)
+        self.N = int(grid_size)
         self.Du = Du
         self.Dv = Dv
         self.F = F

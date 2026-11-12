@@ -149,14 +149,23 @@ class KuramotoEnsemble:
                 self.dt = float(freq_distribution)
                 freq_distribution = "cauchy"
 
+        if coupling_matrix is None:
+            coupling_matrix = kwargs.get("adjacency", kwargs.get("adj", kwargs.get("W", kwargs.get("network", None))))
+
+        if natural_frequencies is not None and np.ndim(natural_frequencies) == 2:
+            if coupling_matrix is None:
+                coupling_matrix = natural_frequencies
+            natural_frequencies = None
+
         if natural_frequencies is not None:
             omega_arr = np.asarray(natural_frequencies, dtype=np.float64)
             if omega_arr.ndim == 0:
                 self.omega = np.full(self.N, float(omega_arr), dtype=np.float64)
             else:
-                if len(omega_arr) != self.N:
-                    raise ValueError(f"Frequencies length ({len(omega_arr)}) != N ({self.N})")
-                self.omega = omega_arr
+                omega_1d = omega_arr.ravel()
+                if len(omega_1d) != self.N:
+                    raise ValueError(f"Frequencies length ({len(omega_1d)}) != N ({self.N})")
+                self.omega = omega_1d
         else:
             if freq_distribution == "cauchy":
                 # Standard Cauchy distribution with scale gamma

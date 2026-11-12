@@ -127,6 +127,23 @@ class Dataset:
         return self.data.shape
 
     @property
+    def ndim(self) -> int:
+        return self.data.ndim
+
+    @property
+    def dtype(self):
+        return self.data.dtype
+
+    def __array__(self, dtype=None) -> np.ndarray:
+        return np.asarray(self.data, dtype=dtype)
+
+    def flatten(self) -> np.ndarray:
+        return np.asarray(self.data).flatten()
+
+    def ravel(self) -> np.ndarray:
+        return np.asarray(self.data).ravel()
+
+    @property
     def sampling_rate(self) -> Optional[float]:
         """Returns the sampling rate in Hz (or observations per unit time) if known."""
         if "sampling_rate" in self.metadata:

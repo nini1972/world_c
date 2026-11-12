@@ -8,7 +8,11 @@ __version__ = "0.2.0"
 import os
 import sys
 import json
+import math
 import numpy as np
+
+if not hasattr(np, "math"):
+    setattr(np, "math", math)
 
 _ORIG_JSON_DEFAULT = json.JSONEncoder.default
 
