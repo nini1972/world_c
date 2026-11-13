@@ -137,6 +137,15 @@ class GrayScott2D:
         self.v += rng.uniform(-noise_amp, noise_amp, size=(self.N, self.N))
         self.u = np.clip(self.u, 0.0, 1.0)
         self.v = np.clip(self.v, 0.0, 1.0)
+        return self
+
+    def initialize(self, radius: int = 10, noise_amp: float = 0.05, seed: int = 42, **kwargs):
+        """Alias for seed_center() so gs.initialize() seeds the initial perturbation."""
+        return self.seed_center(radius=radius, noise_amp=noise_amp, seed=seed)
+
+    def reset(self, radius: int = 10, noise_amp: float = 0.05, seed: int = 42, **kwargs):
+        """Alias for seed_center()."""
+        return self.seed_center(radius=radius, noise_amp=noise_amp, seed=seed)
 
     def step(self):
         """Forward Euler step with periodic 2D Laplacian."""
@@ -169,6 +178,10 @@ class GrayScott2D:
         else:
             for _ in range(steps):
                 self.step()
+
+    def run(self, steps: int = 1) -> None:
+        """Alias for integrate(steps)."""
+        return self.integrate(steps=steps)
 
 
 def simulate_gray_scott(

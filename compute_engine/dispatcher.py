@@ -150,6 +150,8 @@ class ComputeDispatcher:
         os.makedirs(job_dir, exist_ok=True)
         os.makedirs(os.path.join(job_dir, "world_c_results"), exist_ok=True)
         os.makedirs(os.path.join(job_dir, "workspace"), exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "artifacts"), exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "results"), exist_ok=True)
         
         # If script_content is provided directly, write entrypoint.py (or entrypoint.sh if bash script)
         if getattr(spec, "script_content", ""):
@@ -295,6 +297,10 @@ except Exception as err:
 
         stage_dir = self._resolve_stage_dir(spec)
         os.makedirs(stage_dir, exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "world_c_results"), exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "workspace"), exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "artifacts"), exist_ok=True)
+        os.makedirs(os.path.join(job_dir, "results"), exist_ok=True)
         author_res_dir = self._resolve_author_results_dir(spec)
         if author_res_dir:
             os.makedirs(author_res_dir, exist_ok=True)
