@@ -321,9 +321,19 @@ except Exception as err:
             env["WORLD_C_RESULTS_DIR"] = author_res_dir
         if spec.resume_from_job_id:
             env["WORLD_C_RESUME_FROM_JOB_ID"] = spec.resume_from_job_id
-        # Ensure world_c root is in PYTHONPATH and Python DLLs are prioritized
+        # Ensure world_c root, author workspace, and shared_space/shared_agora are in PYTHONPATH
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        env["PYTHONPATH"] = root_dir + os.pathsep + env.get("PYTHONPATH", "")
+        extra_py_paths = [root_dir]
+        if author_res_dir:
+            author_ws_dir = os.path.dirname(author_res_dir)
+            if os.path.isdir(author_ws_dir):
+                extra_py_paths.append(author_ws_dir)
+            instances_dir = os.path.dirname(os.path.dirname(author_ws_dir))
+            for shared_sub in ("shared_space", "shared_agora"):
+                shared_cand = os.path.join(instances_dir, shared_sub)
+                if os.path.isdir(shared_cand):
+                    extra_py_paths.append(shared_cand)
+        env["PYTHONPATH"] = os.pathsep.join(extra_py_paths) + os.pathsep + env.get("PYTHONPATH", "")
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
         dll_dir = os.path.join(sys.base_prefix, "DLLs")

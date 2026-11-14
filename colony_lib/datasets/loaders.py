@@ -226,6 +226,9 @@ class Dataset:
     def __contains__(self, key: str) -> bool:
         return hasattr(self, key) or (key in self.columns) or (key in self.metadata)
 
+    def __iter__(self):
+        return iter(self.keys())
+
     def __repr__(self) -> str:
         return (
             f"<Dataset name='{self.name}' "
