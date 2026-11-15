@@ -43,7 +43,12 @@ def takens_embedding(series: np.ndarray, m: int = 3, tau: int = 1, dim: int = No
         tau = int(delay)
     elif "time_delay" in kwargs and kwargs["time_delay"] is not None:
         tau = int(kwargs["time_delay"])
-    series = np.asarray(series)
+    if hasattr(series, "primary_signal") and getattr(series, "primary_signal", None) is not None:
+        series = series.primary_signal
+    series = np.asarray(series, dtype=np.float64)
+    if series.ndim > 1:
+        series = series[:, 0] if series.shape[0] >= series.shape[1] else series[0, :]
+    series = series.ravel()
     n = len(series)
     n_vectors = n - (m - 1) * tau
     if n_vectors <= 0:

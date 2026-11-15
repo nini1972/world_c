@@ -34,7 +34,7 @@ def logistic_map(
          logistic_map(r=3.9, x0=0.4, n=4000, transient=400) -> 1D np.ndarray of length n
          or logistic_map(3.9, initial_condition=0.4, n=4000, transient=400) -> 1D np.ndarray
     """
-    n_steps = n if n is not None else (steps if steps is not None else T)
+    n_steps = n if n is not None else (steps if steps is not None else (T if T is not None else kwargs.get("N")))
     init_x = x0 if x0 is not None else initial_condition
 
     if n_steps is not None or init_x is not None or transient > 0:
@@ -69,6 +69,62 @@ def logistic_map(
     return r * x * (1.0 - x)
 
 
+def lorenz(
+    state=None,
+    sigma: float = 10.0,
+    rho: float = 28.0,
+    beta: float = 8.0 / 3.0,
+    dt: float = 0.01,
+    steps: int = None,
+    n: int = None,
+    T: int = None,
+    transient: int = 1000,
+    x0=(1.0, 1.0, 1.0),
+    **kwargs
+):
+    """
+    Lorenz 63 chaotic attractor:
+      dx/dt = sigma * (y - x)
+      dy/dt = x * (rho - z) - y
+      dz/dt = x * y - beta * z
+    Supports both:
+      1. Single-state derivative evaluation: lorenz(state, sigma=10.0, rho=28.0, beta=8/3) -> np.ndarray([dx, dy, dz])
+      2. RK4 trajectory integration: lorenz(rho=28.0, steps=10000, dt=0.01, transient=1000) -> (steps, 3) np.ndarray
+    """
+    if state is not None and hasattr(state, "__len__") and len(state) == 3 and steps is None and n is None and T is None:
+        sx, sy, sz = float(state[0]), float(state[1]), float(state[2])
+        return np.array([sigma * (sy - sx), sx * (rho - sz) - sy, sx * sy - beta * sz], dtype=np.float64)
+
+    if isinstance(state, (int, float, np.number)) and steps is None and n is None and T is None:
+        rho = float(state)
+
+    total_steps = steps if steps is not None else (n if n is not None else (T if T is not None else kwargs.get("N", 10000)))
+    total_steps = int(total_steps)
+    burn = max(0, int(transient))
+    s = np.asarray(x0 if state is None or not hasattr(state, "__len__") else state, dtype=np.float64).copy()
+
+    def _rhs(v):
+        return np.array([sigma * (v[1] - v[0]), v[0] * (rho - v[2]) - v[1], v[0] * v[1] - beta * v[2]], dtype=np.float64)
+
+    for _ in range(burn):
+        k1 = _rhs(s)
+        k2 = _rhs(s + 0.5 * dt * k1)
+        k3 = _rhs(s + 0.5 * dt * k2)
+        k4 = _rhs(s + dt * k3)
+        s = s + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+    traj = np.empty((total_steps, 3), dtype=np.float64)
+    for i in range(total_steps):
+        k1 = _rhs(s)
+        k2 = _rhs(s + 0.5 * dt * k1)
+        k3 = _rhs(s + 0.5 * dt * k2)
+        k4 = _rhs(s + dt * k3)
+        s = s + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        traj[i] = s
+    return traj
+
+
+simulate_lorenz = lorenz
 kuramoto_dynamics = simulate_kuramoto
 gray_scott_step = simulate_gray_scott
 
@@ -95,4 +151,6 @@ __all__ = [
     "logistic_map",
     "coupled_logistic_map",
     "simulate_coupled_logistic_map",
+    "lorenz",
+    "simulate_lorenz",
 ]

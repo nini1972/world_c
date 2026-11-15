@@ -98,16 +98,23 @@ def coupled_logistic_map(
        or coupled_logistic_map(steps=2000)
     """
     if isinstance(x, np.ndarray):
+        x_arr = np.ascontiguousarray(x, dtype=np.float64).ravel()
+        r_f = float(np.asarray(r).flat[0]) if np.ndim(r) > 0 else float(r)
+        eps_f = float(np.asarray(eps).flat[0]) if np.ndim(eps) > 0 else float(eps)
         if _HAS_NUMBA:
-            return _cml_step_jit(x, r, eps)
-        x_prev = np.roll(x, 1)
-        x_next = np.roll(x, -1)
-        fx = r * x * (1.0 - x)
-        fx_prev = r * x_prev * (1.0 - x_prev)
-        fx_next = r * x_next * (1.0 - x_next)
-        return (1.0 - eps) * fx + (eps / 2.0) * (fx_prev + fx_next)
+            return _cml_step_jit(x_arr, r_f, eps_f)
+        x_prev = np.roll(x_arr, 1)
+        x_next = np.roll(x_arr, -1)
+        fx = r_f * x_arr * (1.0 - x_arr)
+        fx_prev = r_f * x_prev * (1.0 - x_prev)
+        fx_next = r_f * x_next * (1.0 - x_next)
+        return (1.0 - eps_f) * fx + (eps_f / 2.0) * (fx_prev + fx_next)
 
-    if isinstance(x, (int, np.integer)):
+    if isinstance(x, (float, np.floating)):
+        # Called as coupled_logistic_map(r_val, eps_val, N=..., steps=...)
+        eps = float(r) if 0.0 <= float(r) <= 1.0 else float(eps)
+        r = float(x)
+    elif isinstance(x, (int, np.integer)):
         N = int(x)
 
     total_N = N if N is not None else kwargs.get("n", 100)
