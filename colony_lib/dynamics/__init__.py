@@ -70,6 +70,7 @@ def logistic_map(
 
 
 def lorenz(
+    *args,
     state=None,
     sigma: float = 10.0,
     rho: float = 28.0,
@@ -87,16 +88,47 @@ def lorenz(
       dx/dt = sigma * (y - x)
       dy/dt = x * (rho - z) - y
       dz/dt = x * y - beta * z
-    Supports both:
+    Supports:
       1. Single-state derivative evaluation: lorenz(state, sigma=10.0, rho=28.0, beta=8/3) -> np.ndarray([dx, dy, dz])
-      2. RK4 trajectory integration: lorenz(rho=28.0, steps=10000, dt=0.01, transient=1000) -> (steps, 3) np.ndarray
+      2. Unpacked 6-8 scalar positional args: x, y, z = lorenz(x0, y0, z0, sigma, rho, beta, dt, t_max) -> shape (3, N)
+      3. RK4 trajectory integration: lorenz(rho=28.0, steps=10000, dt=0.01, transient=1000) -> (steps, 3) np.ndarray
     """
-    if state is not None and hasattr(state, "__len__") and len(state) == 3 and steps is None and n is None and T is None:
+    return_transposed = False
+    if len(args) >= 6 and all(isinstance(a, (int, float, np.number)) for a in args[:6]):
+        x0 = (float(args[0]), float(args[1]), float(args[2]))
+        sigma = float(args[3])
+        rho = float(args[4])
+        beta = float(args[5])
+        if len(args) >= 7:
+            dt = float(args[6])
+        if len(args) >= 8:
+            t_arg = float(args[7])
+            steps = int(round(t_arg / dt)) if t_arg <= 500.0 and dt < 1.0 else int(t_arg)
+        transient = int(kwargs.get("transient", 0))
+        return_transposed = True
+    elif len(args) >= 1:
+        state = args[0]
+        if len(args) >= 2:
+            sigma = float(args[1])
+        if len(args) >= 3:
+            rho = float(args[2])
+        if len(args) >= 4:
+            beta = float(args[3])
+        if len(args) >= 5:
+            dt = float(args[4])
+        if len(args) >= 6:
+            steps = int(args[5])
+
+    if state is not None and hasattr(state, "__len__") and len(state) == 3 and steps is None and n is None and T is None and not return_transposed:
         sx, sy, sz = float(state[0]), float(state[1]), float(state[2])
         return np.array([sigma * (sy - sx), sx * (rho - sz) - sy, sx * sy - beta * sz], dtype=np.float64)
 
-    if isinstance(state, (int, float, np.number)) and steps is None and n is None and T is None:
+    if isinstance(state, (int, float, np.number)) and steps is None and n is None and T is None and not return_transposed:
         rho = float(state)
+
+    t_max_kw = kwargs.get("t_max") or kwargs.get("tmax")
+    if t_max_kw is not None and steps is None:
+        steps = int(round(float(t_max_kw) / dt)) if float(t_max_kw) <= 500.0 and dt < 1.0 else int(t_max_kw)
 
     total_steps = steps if steps is not None else (n if n is not None else (T if T is not None else kwargs.get("N", 10000)))
     total_steps = int(total_steps)
@@ -121,7 +153,7 @@ def lorenz(
         k4 = _rhs(s + dt * k3)
         s = s + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
         traj[i] = s
-    return traj
+    return traj.T if return_transposed else traj
 
 
 simulate_lorenz = lorenz

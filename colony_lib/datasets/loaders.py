@@ -135,13 +135,13 @@ class Dataset:
         return self.data.dtype
 
     def __array__(self, dtype=None) -> np.ndarray:
-        return np.asarray(self.data, dtype=dtype)
+        return np.asarray(self.primary_signal, dtype=dtype)
 
     def flatten(self) -> np.ndarray:
-        return np.asarray(self.data).flatten()
+        return np.asarray(self.primary_signal).flatten()
 
     def ravel(self) -> np.ndarray:
-        return np.asarray(self.data).ravel()
+        return np.asarray(self.primary_signal).ravel()
 
     @property
     def sampling_rate(self) -> Optional[float]:
