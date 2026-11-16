@@ -52,3 +52,13 @@ try:
     scipy.spatial.KDTree = _SafeCKDTree
 except Exception:
     pass
+
+# Provide safe builtin log fallback if not present
+try:
+    import builtins
+    if not hasattr(builtins, "log"):
+        def _safe_builtin_log(*args, **kwargs):
+            print(*args, **kwargs)
+        builtins.log = _safe_builtin_log
+except Exception:
+    pass

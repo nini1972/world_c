@@ -191,6 +191,14 @@ class ComputeDispatcher:
                     # Check for obvious shell idioms when shebang was omitted
                     if any(line.strip().startswith(("set -e", "export ", "cp ", "md5sum ")) for line in cleaned_script.splitlines()[:10]):
                         is_shell = True
+            if not is_shell and "def log(" in cleaned_script:
+                import re
+                # Fix agent helper idiom: def log(*a): print(*a, flush=True) which crashes if log(..., flush=True) is called
+                cleaned_script = re.sub(
+                    r'def\s+log\s*\(\s*\*([a-zA-Z0-9_]+)\s*\)\s*:\s*print\s*\(\s*\*\1\s*,\s*flush\s*=\s*True\s*\)',
+                    r'def log(*\1, **_kw): print(*\1, flush=_kw.get("flush", True))',
+                    cleaned_script
+                )
             entry_filename = "entrypoint.sh" if is_shell else "entrypoint.py"
             entry_path = os.path.join(job_dir, entry_filename)
             with open(entry_path, "w", encoding="utf-8", newline="\n" if is_shell else None) as f:
