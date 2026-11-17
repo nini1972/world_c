@@ -55,6 +55,8 @@ def test_load_solar_sunspots():
 
     # Check dict access
     assert np.allclose(ds["sunspot_number"], ds.primary_signal)
+    assert np.allclose(ds["timeseries"], ds.primary_signal)
+    assert np.allclose(ds["time_series"], ds.primary_signal)
     assert np.isclose(np.mean(ds.normalized), 0.0, atol=1e-5)
     assert np.isclose(np.std(ds.normalized), 1.0, atol=1e-5)
 

@@ -193,7 +193,7 @@ class Dataset:
             if key == "sampling_rate":
                 return self.sampling_rate
             k_low = key.lower().strip()
-            if k_low in ("series", "values", "value", "signal", "y", "x", "x_t", "ts", "time_series", "concentration", "sunspots", "sunspot_number", "ssn", "temperature", "eeg", "activity"):
+            if k_low in ("series", "values", "value", "signal", "y", "x", "x_t", "ts", "time_series", "timeseries", "concentration", "sunspots", "sunspot_number", "ssn", "temperature", "eeg", "activity"):
                 return self.primary_signal
             if k_low in ("t", "times", "timestamps", "time_s", "year", "years"):
                 return self.time

@@ -101,6 +101,20 @@ def coupled_logistic_map(
         x_arr = np.ascontiguousarray(x, dtype=np.float64).ravel()
         r_f = float(np.asarray(r).flat[0]) if np.ndim(r) > 0 else float(r)
         eps_f = float(np.asarray(eps).flat[0]) if np.ndim(eps) > 0 else float(eps)
+        n_steps = steps if steps is not None else (N if N is not None else kwargs.get("T"))
+        if n_steps is not None:
+            total_steps = int(n_steps)
+            transient = int(kwargs.get("transient", 0))
+            if _HAS_NUMBA:
+                return _cml_simulate_jit(x_arr, total_steps, transient, r_f, eps_f)
+            x_curr = x_arr.copy()
+            for _ in range(transient):
+                x_curr = coupled_logistic_map(x_curr, r=r_f, eps=eps_f)
+            trajectory = np.empty((total_steps, len(x_arr)), dtype=np.float64)
+            for t in range(total_steps):
+                x_curr = coupled_logistic_map(x_curr, r=r_f, eps=eps_f)
+                trajectory[t] = x_curr
+            return trajectory
         if _HAS_NUMBA:
             return _cml_step_jit(x_arr, r_f, eps_f)
         x_prev = np.roll(x_arr, 1)

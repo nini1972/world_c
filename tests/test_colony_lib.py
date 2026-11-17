@@ -65,6 +65,14 @@ def test_coupled_map_lattice():
     assert traj.shape == (50, 20)
     assert np.all(traj >= 0.0) and np.all(traj <= 1.0)
 
+    # Single-step update vs multi-step simulation from explicit x0
+    x0 = np.linspace(0.1, 0.9, 20)
+    step1 = coupled_logistic_map(x0, 3.865, 0.132)
+    assert step1.shape == (20,)
+    traj_x0 = coupled_logistic_map(x0, 3.865, 0.132, 50)
+    assert traj_x0.shape == (50, 20)
+    assert np.allclose(traj_x0[0], step1)
+
 def test_takens_and_rqa():
     # Test on a sine wave
     t = np.linspace(0, 4 * np.pi, 200)
