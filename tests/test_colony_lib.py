@@ -347,4 +347,30 @@ def test_claude_haiku_cartographer_upgrades(tmp_path):
     assert "scaling-law" in log_entries[0]["tags"]
 
 
+def test_complex_json_serialization_and_ndarray_continuation():
+    import json
+    import colony_lib  # noqa: F401 - installs _numpy_safe_json_default
+    from colony_lib.bifurcation.continuation import continuation_kuramoto
+    from colony_lib.network_topology import generate_topology
+
+    payload = {
+        "real_eig": np.complex128(3.5 + 1e-16j),
+        "true_complex": np.complex128(1.25 - 2.5j),
+        "arr": np.array([1.0 + 0j, 2.0 + 0.5j], dtype=np.complex128),
+    }
+    encoded = json.loads(json.dumps(payload))
+    assert encoded["real_eig"] == 3.5
+    assert encoded["true_complex"] == {"real": 1.25, "imag": -2.5}
+    assert encoded["arr"] == [1.0, {"real": 2.0, "imag": 0.5}]
+
+    adj = generate_topology("complete", N=16, seed=7)
+    K_vals, r_vals, stab = continuation_kuramoto(
+        N=16, sigma=0.3, topology=adj, K_init=0.2, K_max=1.5, steps=4, t_max=1.0, dt=0.1, seed=7
+    )
+    assert len(K_vals) == 4
+    assert len(r_vals) == 4
+    assert len(stab) == 4
+
+
+
 

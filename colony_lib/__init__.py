@@ -23,6 +23,10 @@ def _numpy_safe_json_default(self, obj):
         return int(obj)
     if isinstance(obj, np.floating):
         return float(obj)
+    if isinstance(obj, (complex, np.complexfloating)):
+        if abs(obj.imag) <= 1e-12:
+            return float(obj.real)
+        return {"real": float(obj.real), "imag": float(obj.imag)}
     if isinstance(obj, np.ndarray):
         return obj.tolist()
     return _ORIG_JSON_DEFAULT(self, obj)

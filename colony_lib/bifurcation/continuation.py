@@ -252,7 +252,7 @@ def detect_critical_point(
 def continuation_kuramoto(
     N: int = 50,
     sigma: float = 0.5,
-    topology: str = "scale-free",
+    topology: Union[str, np.ndarray] = "scale-free",
     K_init: float = 0.5,
     K_max: float = 3.0,
     steps: int = 40,
@@ -266,8 +266,10 @@ def continuation_kuramoto(
     """
     Numerical continuation of synchronization branches for coupled Kuramoto oscillators
     across network topologies. Carries forward final oscillator phases along the branch.
-    Supports optional stage checkpointing/resumption via `stage_name`.
+    Supports string topology names or a 2D adjacency matrix, plus optional stage
+    checkpointing/resumption via `stage_name`.
     """
+    import hashlib
     from ..network_topology import generate_topology
     from ..dynamics.kuramoto import compute_order_parameter
 
@@ -275,14 +277,25 @@ def continuation_kuramoto(
     omega = rng.normal(loc=0.0, scale=sigma, size=N)
     omega -= np.mean(omega)  # Co-rotating frame
 
-    topo_clean = topology.strip().lower().replace("_", "-")
-    if topo_clean in ("all-to-all", "complete", "mean-field"):
-        adj = None
-    else:
-        adj = generate_topology(topo_clean, N=N, seed=seed, **topology_kwargs)
-        # Normalize coupling by mean degree so K remains intensive across topologies
+    if isinstance(topology, np.ndarray):
+        adj = np.asarray(topology, dtype=np.float64)
+        if adj.ndim != 2 or adj.shape[0] != adj.shape[1]:
+            raise ValueError(f"Expected square 2D adjacency matrix for topology, got shape {adj.shape}")
+        if adj.shape[0] != N:
+            raise ValueError(f"Adjacency matrix shape {adj.shape} does not match N={N}")
         mean_deg = max(float(np.mean(np.sum(adj > 0, axis=1))), 1.0)
         adj = adj / mean_deg
+        topo_hash = hashlib.md5(adj.tobytes()).hexdigest()[:8]
+        topo_clean = f"matrix_{N}x{N}_{topo_hash}"
+    else:
+        topo_clean = str(topology).strip().lower().replace("_", "-")
+        if topo_clean in ("all-to-all", "complete", "mean-field"):
+            adj = None
+        else:
+            adj = generate_topology(topo_clean, N=N, seed=seed, **topology_kwargs)
+            # Normalize coupling by mean degree so K remains intensive across topologies
+            mean_deg = max(float(np.mean(np.sum(adj > 0, axis=1))), 1.0)
+            adj = adj / mean_deg
 
     K_values = np.linspace(float(K_init), float(K_max), int(steps))
     r_values = np.zeros(len(K_values), dtype=np.float64)
