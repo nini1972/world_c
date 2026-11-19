@@ -104,12 +104,15 @@ class GrayScott2D:
         dx: float = 1.0,
         N: Optional[int] = None,
         size: Optional[int] = None,
+        L: Optional[int] = None,
         **kwargs
     ):
         if N is not None:
             grid_size = int(N)
         elif size is not None:
             grid_size = int(size)
+        elif L is not None:
+            grid_size = int(L)
         self.N = int(grid_size)
         self.Du = Du
         self.Dv = Dv
@@ -121,6 +124,24 @@ class GrayScott2D:
         # State fields
         self.u = np.ones((self.N, self.N), dtype=np.float64)
         self.v = np.zeros((self.N, self.N), dtype=np.float64)
+
+    @property
+    def U(self) -> np.ndarray:
+        """Alias for self.u (uppercase convention compatibility)."""
+        return self.u
+
+    @U.setter
+    def U(self, value: np.ndarray) -> None:
+        self.u = value
+
+    @property
+    def V(self) -> np.ndarray:
+        """Alias for self.v (uppercase convention compatibility)."""
+        return self.v
+
+    @V.setter
+    def V(self, value: np.ndarray) -> None:
+        self.v = value
 
     def seed_center(self, radius: int = 10, noise_amp: float = 0.05, seed: int = 42):
         """Seeds a square patch in the center with perturbing noise to seed pattern emergence."""

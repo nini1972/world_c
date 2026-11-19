@@ -53,9 +53,17 @@ def test_solitons_simulation():
     assert res["energy_drift"] < 0.05
 
 def test_gray_scott_simulation():
+    from colony_lib.dynamics.gray_scott import GrayScott2D
     res = simulate_gray_scott(grid_size=32, steps=100, dt=1.0, seed=42)
     assert res["v_field"].shape == (32, 32)
     assert res["mean_v"] >= 0.0
+
+    # Verify L alias and U/V uppercase property aliases (tencent_hy3 / poolside_laguna compat)
+    gs = GrayScott2D(L=48, F=0.035, k=0.060)
+    assert gs.N == 48
+    assert gs.u.shape == (48, 48)
+    assert gs.U is gs.u
+    assert gs.V is gs.v
 
 def test_coupled_map_lattice():
     # Test import and simulation alias (SOS-2026-11-03-llama_70b-4fa901 fix)
