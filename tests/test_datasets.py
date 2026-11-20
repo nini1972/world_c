@@ -179,3 +179,68 @@ def test_integration_with_recurrence_takens_rqa():
     assert 0.0 <= metrics["recurrence_rate"] <= 1.0
     assert 0.0 <= metrics["determinism"] <= 1.0
     assert metrics["max_diag_length"] >= 0
+
+
+def test_dataset_data_array_scalar_unwrapping_and_round():
+    """Regression test for tencent_hy3 friction: 1D slices and scalar reductions unwrap cleanly and support round()."""
+    ds = load_neural_eeg()
+    # 1D column slice via integer index unwraps to plain ndarray
+    raw = ds.data[:, ds.channels.index("AF3")].astype(float)
+    assert type(raw) is np.ndarray
+    seg = raw[:2000]
+    std_val = seg.std()
+    assert isinstance(std_val, (float, np.floating))
+    assert not hasattr(std_val, "columns")
+    assert isinstance(round(std_val, 3), (float, np.floating))
+
+    # 2D DatasetDataArray reductions also unwrap to scalars
+    sub2d = ds.data[:, :4].astype(float)
+    s2 = sub2d.std()
+    assert isinstance(s2, (float, np.floating))
+    assert isinstance(round(s2, 3), (float, np.floating))
+    assert sub2d.columns == ["AF3", "F7", "F3", "FC5"]
+    # Axis reduction to 1D unwraps to plain ndarray
+    m1 = sub2d.mean(axis=0)
+    assert type(m1) is np.ndarray
+    assert m1.shape == (4,)
+
+
+def test_signal_columns_channel_data_and_signal_matrix():
+    """Regression test for kimi_code / glm_5_2 / xiaomi_mimo multichannel Dataset ergonomics."""
+    eeg = load_neural_eeg()
+    # Existing .columns keeps all 15 CSV columns for backward compatibility
+    assert len(eeg.columns) == 15
+    assert "eyeDetection" in eeg.columns
+    # .signal_columns / .channel_names return exact 14 EEG channels without eyeDetection
+    assert len(eeg.signal_columns) == 14
+    assert "eyeDetection" not in eeg.signal_columns
+    assert eeg.channel_names == eeg.signal_columns
+
+    ch_map = eeg.channel_data()
+    assert list(ch_map.keys()) == eeg.signal_columns
+    for ch, arr in ch_map.items():
+        assert type(arr) is np.ndarray
+        assert arr.shape == (14980,)
+        assert arr.dtype == np.float64
+
+    X = eeg.signal_matrix()
+    assert type(X) is np.ndarray
+    assert X.shape == (14980, 14)
+    assert np.allclose(X[:, 0], eeg.primary_signal)
+    assert np.allclose(eeg["signal_matrix"], X)
+
+    # Backward-compatible 1D np.asarray(ds) preserved (commit dc551d9)
+    arr_1d = np.asarray(eeg, dtype=float)
+    assert arr_1d.shape == (14980,)
+    assert np.allclose(arr_1d, eeg.primary_signal)
+
+    # Check all 7 canonical datasets expose non-empty valid signal_columns and 2D signal_matrix
+    for name in list_datasets():
+        ds = load_dataset(name)
+        assert len(ds.signal_columns) >= 1
+        for col in ds.signal_columns:
+            assert col in ds.columns
+        mat = ds.signal_matrix()
+        assert mat.ndim == 2
+        assert mat.shape == (len(ds), len(ds.signal_columns))
+

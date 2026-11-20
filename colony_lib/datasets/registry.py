@@ -19,6 +19,7 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
         "sampling_rate": 12.0,
         "time_range": "1749 - 2026 (3,300+ months)",
         "columns": ["year", "month", "decimal_year", "sunspot_number", "std_dev", "n_observations"],
+        "signal_columns": ["sunspot_number"],
         "primary_signal": "sunspot_number",
         "physical_system": "Solar Magnetohydrodynamic Dynamo",
         "description": (
@@ -48,6 +49,11 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
             "nino3_sst", "nino3_anom", "nino4_sst", "nino4_anom",
             "nino34_sst", "nino34_anom"
         ],
+        "signal_columns": [
+            "nino12_sst", "nino12_anom",
+            "nino3_sst", "nino3_anom", "nino4_sst", "nino4_anom",
+            "nino34_sst", "nino34_anom"
+        ],
         "primary_signal": "nino34_anom",
         "physical_system": "Coupled Atmosphere-Ocean Delayed Oscillator",
         "description": (
@@ -72,6 +78,7 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
         "sampling_rate": 1.0,
         "time_range": "10-Year Daily Continuous Series (3,650 points)",
         "columns": ["Date", "Temp"],
+        "signal_columns": ["Temp"],
         "primary_signal": "Temp",
         "physical_system": "Atmospheric Planetary Boundary Layer Dynamics",
         "description": (
@@ -96,6 +103,7 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
         "sampling_rate": 128.0,
         "time_range": "14,980 timesteps (approx. 117 seconds continuous)",
         "columns": ["AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", "P8", "T8", "FC6", "F4", "F8", "AF4", "eyeDetection"],
+        "signal_columns": ["AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", "P8", "T8", "FC6", "F4", "F8", "AF4"],
         "primary_signal": "AF3",
         "physical_system": "Macroscopic Neural Population Synchronization",
         "description": (
@@ -120,6 +128,7 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
         "sampling_rate": 1.0,
         "time_range": "1900 - 1920 (Extended cycle benchmark)",
         "columns": ["year", "lynx", "hare"],
+        "signal_columns": ["lynx", "hare"],
         "primary_signal": "hare",
         "physical_system": "Non-Linear Predator-Prey Trophic Cascade",
         "description": (
@@ -147,6 +156,10 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
             "time_s", "bus1_freq_hz", "bus2_freq_hz", "bus3_freq_hz",
             "bus4_freq_hz", "mean_freq_deviation_hz", "kuramoto_r"
         ],
+        "signal_columns": [
+            "bus1_freq_hz", "bus2_freq_hz", "bus3_freq_hz",
+            "bus4_freq_hz", "mean_freq_deviation_hz", "kuramoto_r"
+        ],
         "primary_signal": "kuramoto_r",
         "physical_system": "Coupled Inertial Synchronous Generators (Second-Order Kuramoto Grid)",
         "description": (
@@ -171,6 +184,7 @@ DATASET_CATALOG: Dict[str, Dict[str, Any]] = {
         "sampling_rate": 100.0,
         "time_range": "10.0 seconds continuous (1,000 timesteps)",
         "columns": ["time_s", "activator_u", "inhibitor_v", "catalyst_z", "redox_potential_mv"],
+        "signal_columns": ["activator_u", "inhibitor_v", "catalyst_z", "redox_potential_mv"],
         "primary_signal": "redox_potential_mv",
         "physical_system": "Autocatalytic Bromate-Cerium-Malonic Acid Chemical Oscillator",
         "description": (

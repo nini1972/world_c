@@ -72,9 +72,44 @@ class DatasetDataArray(np.ndarray):
             if self.ndim == 2:
                 sub = super().__getitem__((slice(None), indices))
                 return DatasetDataArray(sub, columns=matched_cols)
-            return super().__getitem__(indices)
+            return np.asarray(super().__getitem__(indices))
 
-        return super().__getitem__(key)
+        res = super().__getitem__(key)
+        if isinstance(res, DatasetDataArray):
+            if res.ndim == 0:
+                return np.asarray(res)[()]
+            if res.ndim == 1:
+                return np.asarray(res)
+            if res.ndim == 2 and isinstance(key, tuple) and len(key) == 2 and hasattr(self, "columns") and self.columns:
+                col_sel = key[1]
+                if isinstance(col_sel, slice):
+                    res.columns = list(self.columns[col_sel])
+                elif isinstance(col_sel, (list, tuple, np.ndarray)):
+                    try:
+                        sel_arr = np.asarray(col_sel)
+                        if sel_arr.dtype == bool and len(sel_arr) == len(self.columns):
+                            res.columns = [c for c, b in zip(self.columns, sel_arr) if b]
+                        else:
+                            res.columns = [self.columns[int(i)] for i in sel_arr]
+                    except Exception:
+                        pass
+        return res
+
+    def __array_wrap__(self, out_arr, context=None, return_scalar=False):
+        if return_scalar or getattr(out_arr, "ndim", 0) == 0:
+            return np.asarray(out_arr)[()]
+        if getattr(out_arr, "ndim", 0) == 1:
+            return np.asarray(out_arr)
+        try:
+            return super().__array_wrap__(out_arr, context, return_scalar)
+        except TypeError:
+            return super().__array_wrap__(out_arr, context)
+
+    def __round__(self, ndigits: Optional[int] = None):
+        if self.ndim == 0:
+            val = float(np.asarray(self)[()])
+            return round(val, ndigits) if ndigits is not None else round(val)
+        return np.round(np.asarray(self), ndigits or 0)
 
     def __getattr__(self, name: str) -> Any:
         if hasattr(self, "columns") and self.columns:
@@ -134,8 +169,11 @@ class Dataset:
     def dtype(self):
         return self.data.dtype
 
-    def __array__(self, dtype=None) -> np.ndarray:
-        return np.asarray(self.primary_signal, dtype=dtype)
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
+        arr = np.asarray(self.primary_signal, dtype=dtype)
+        if copy:
+            return arr.copy()
+        return arr
 
     def flatten(self) -> np.ndarray:
         return np.asarray(self.primary_signal).flatten()
@@ -164,6 +202,39 @@ class Dataset:
         """Alias for columns."""
         return self.columns
 
+    @property
+    def signal_columns(self) -> List[str]:
+        """Returns pure physical signal/channel column names (excluding time/index/label columns such as eyeDetection)."""
+        meta_sigs = self.metadata.get("signal_columns") if isinstance(self.metadata, dict) else None
+        if meta_sigs:
+            valid = [c for c in meta_sigs if c in self.columns]
+            if valid:
+                return valid
+        non_signal = {
+            "year", "month", "day", "date", "dayindex", "decimal_year",
+            "time", "time_s", "timestamp", "timestamps",
+            "eyedetection", "label", "target", "std_dev", "n_observations",
+        }
+        filtered = [c for c in self.columns if c.strip().lower() not in non_signal]
+        return filtered if filtered else list(self.columns)
+
+    @property
+    def channel_names(self) -> List[str]:
+        """Alias for signal_columns."""
+        return self.signal_columns
+
+    def channel_data(self, channels: Optional[List[str]] = None, dtype=float) -> Dict[str, np.ndarray]:
+        """Returns an ordered dict {channel_name: 1D np.ndarray} over signal_columns (or specified channels)."""
+        cols = list(channels) if channels is not None else self.signal_columns
+        return {ch: np.asarray(self[ch], dtype=dtype) for ch in cols}
+
+    def signal_matrix(self, channels: Optional[List[str]] = None, dtype=float) -> np.ndarray:
+        """Returns a clean 2D (n_samples, n_channels) ndarray of physical signal columns."""
+        cols = list(channels) if channels is not None else self.signal_columns
+        if not cols:
+            return np.asarray(self.primary_signal, dtype=dtype)[:, None]
+        return np.column_stack([np.asarray(self[ch], dtype=dtype) for ch in cols])
+
     def __len__(self) -> int:
         """Returns the number of time-series observations."""
         return len(self.primary_signal)
@@ -179,8 +250,15 @@ class Dataset:
         if isinstance(key, list):
             return self.data[key]
         if isinstance(key, str):
+            k_low = key.lower().strip()
+            if k_low in ("signal_matrix", "channel_matrix", "signals", "eeg_matrix"):
+                return self.signal_matrix()
+            if k_low == "channel_data":
+                return self.channel_data()
             if hasattr(self, key):
-                return getattr(self, key)
+                attr_val = getattr(self, key)
+                if not callable(attr_val):
+                    return attr_val
             if key in self.columns:
                 idx = self.columns.index(key)
                 return self.data[:, idx]
@@ -192,7 +270,6 @@ class Dataset:
                 return self.metadata[key]
             if key == "sampling_rate":
                 return self.sampling_rate
-            k_low = key.lower().strip()
             if k_low in ("series", "values", "value", "signal", "y", "x", "x_t", "ts", "time_series", "timeseries", "concentration", "sunspots", "sunspot_number", "ssn", "temperature", "eeg", "activity"):
                 return self.primary_signal
             if k_low in ("t", "times", "timestamps", "time_s", "year", "years"):
