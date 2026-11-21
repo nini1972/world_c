@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import ndimage
 
 
 def block_reduce(image, block_size=2, func=np.sum, cval=0, func_kwargs=None):
@@ -25,3 +26,18 @@ def block_reduce(image, block_size=2, func=np.sum, cval=0, func_kwargs=None):
     axes = tuple(range(1, 2 * arr.ndim, 2))
     kwargs = func_kwargs or {}
     return func(reshaped, axis=axes, **kwargs)
+
+
+def label(label_image, background=None, return_num=False, connectivity=None):
+    """Lightweight SciPy-backed drop-in for skimage.measure.label."""
+    arr = np.asarray(label_image)
+    bg = 0 if background is None else background
+    mask = arr != bg
+    conn = arr.ndim if connectivity is None else int(connectivity)
+    if conn < 1 or conn > arr.ndim:
+        raise ValueError(f"Connectivity must be between 1 and {arr.ndim}, got {conn}")
+    struct = ndimage.generate_binary_structure(arr.ndim, conn)
+    labeled, num_features = ndimage.label(mask, structure=struct)
+    if return_num:
+        return labeled, int(num_features)
+    return labeled
