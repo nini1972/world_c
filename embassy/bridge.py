@@ -7,6 +7,7 @@ Facilitates job requests and findings synchronization across:
 """
 
 import os
+import re
 import sys
 import time
 import shutil
@@ -15,6 +16,40 @@ import argparse
 from typing import Dict, Any, List, Optional
 from compute_engine.job_spec import JobSpec, JobStatus, JobResult
 from compute_engine.dispatcher import ComputeDispatcher
+
+_NAN_METRIC_RE = re.compile(r"(?:=|:)\s*(?:nan|-?inf)\b", re.IGNORECASE)
+_JSON_NAN_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_])(?:NaN|-?Infinity)(?![A-Za-z0-9_])|:\s*\"(?:nan|-?inf)\"", re.IGNORECASE)
+
+def _detect_numerical_corruption(
+    stdout_tail: str,
+    stderr_tail: str,
+    job_dir: Optional[str] = None,
+    artifacts: Optional[List[str]] = None,
+) -> List[str]:
+    """Detects silent NaN/Inf overflow warnings or nan metric values in completed jobs."""
+    reasons: List[str] = []
+    err_text = stderr_tail or ""
+    out_text = stdout_tail or ""
+    if "overflow encountered" in err_text.lower():
+        reasons.append("RuntimeWarning: numerical overflow encountered during integration/arithmetic.")
+    if "invalid value encountered" in err_text.lower():
+        reasons.append("RuntimeWarning: invalid value (NaN/Inf) encountered in NumPy/SciPy operations.")
+    if _NAN_METRIC_RE.search(out_text):
+        reasons.append("Execution stdout summary metrics contain `nan` or `inf` values.")
+    if job_dir and artifacts and os.path.isdir(job_dir):
+        for art in artifacts:
+            if art.endswith(".json") and not art.endswith("_horizon_certificate.json"):
+                ap = os.path.join(job_dir, art)
+                try:
+                    if os.path.isfile(ap) and os.path.getsize(ap) <= 2_000_000:
+                        with open(ap, "r", encoding="utf-8", errors="ignore") as f:
+                            raw = f.read()
+                        if _JSON_NAN_TOKEN_RE.search(raw):
+                            reasons.append(f"Generated artifact `{os.path.basename(art)}` contains NaN/Infinity values.")
+                            break
+                except Exception:
+                    pass
+    return reasons
 
 def safe_print(*args, **kwargs):
     try:
@@ -242,6 +277,24 @@ class EmbassyBridge:
         if result.stderr_tail.strip():
             err_block = f"### ⚠️ Errors / Warnings:\n```\n{result.stderr_tail.strip()}\n```\n\n---\n"
 
+        nan_reasons = _detect_numerical_corruption(
+            result.stdout_tail,
+            result.stderr_tail,
+            job_dir=os.path.join(self.world_c_root, "jobs", result.job_id),
+            artifacts=result.artifacts_generated,
+        )
+        nan_banner = ""
+        if nan_reasons:
+            nan_bullets = "\n".join(f"> - {r}" for r in nan_reasons)
+            nan_banner = (
+                "> [!WARNING]\n"
+                f"> **⚠️ NUMERICAL CORRUPTION / NaN OVERFLOW DETECTED:** Although this process exited with code `{result.exit_code}`, "
+                "automated post-flight inspection flagged numerical instability:\n"
+                f"{nan_bullets}\n"
+                "> **Do NOT treat zero or flat summary statistics from this run as physical null results.** "
+                "Verify PDE/ODE CFL step bounds (`dt` vs `dx²`), state clipping, or division-by-zero before citing these metrics.\n\n---\n\n"
+            )
+
         stage_block = ""
         job_dir = os.path.join(self.world_c_root, "jobs", result.job_id)
         cert_info = None
@@ -282,7 +335,7 @@ class EmbassyBridge:
 
 ---
 
-{stage_block}## 📦 Generated Artifacts
+{nan_banner}{stage_block}## 📦 Generated Artifacts
 {art_list}
 
 ---
@@ -355,6 +408,14 @@ class EmbassyBridge:
         tags = [tag for tag, keywords in tag_rules.items() if any(kw in text_blob for kw in keywords)]
         if not tags:
             tags = ["world-c-experiment"]
+        if _detect_numerical_corruption(
+            result.stdout_tail,
+            result.stderr_tail,
+            job_dir=os.path.join(self.world_c_root, "jobs", result.job_id),
+            artifacts=result.artifacts_generated,
+        ):
+            if "numerical-nan-warning" not in tags:
+                tags.append("numerical-nan-warning")
 
         entry = {
             "job_id": result.job_id,

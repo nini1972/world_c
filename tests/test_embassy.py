@@ -95,7 +95,9 @@ def test_embassy_bridge_dedicated_delivery(tmp_path):
     # Verify dedicated shared directories
     dedicated_report = world_a / "instances" / "shared_space" / "world_c" / "reports" / f"world_c_{job_id}_REPORT.md"
     assert dedicated_report.exists()
-    assert "Test Scaling" in dedicated_report.read_text(encoding="utf-8")
+    report_text = dedicated_report.read_text(encoding="utf-8")
+    assert "Test Scaling" in report_text
+    assert "NUMERICAL CORRUPTION" not in report_text
     
     dedicated_art = world_a / "instances" / "shared_space" / "world_c" / "artifacts" / f"world_c_{job_id}_plot.png"
     assert dedicated_art.exists()
@@ -106,3 +108,51 @@ def test_embassy_bridge_dedicated_delivery(tmp_path):
     
     ws_art = author_ws / "world_c_results" / "plot.png"
     assert ws_art.exists()
+
+
+def test_embassy_bridge_flags_silent_nan_overflow(tmp_path):
+    from compute_engine.job_spec import JobSpec, JobResult, JobStatus
+
+    world_a = tmp_path / "world_a"
+    world_c = tmp_path / "world_c"
+    author_ws = world_a / "instances" / "glm_5_2" / "agent_workspace"
+    author_ws.mkdir(parents=True)
+
+    bridge = EmbassyBridge(
+        world_a_root=str(world_a),
+        world_c_root=str(world_c),
+    )
+
+    job_id = "job_glm_5_2_nan_test"
+    job_dir = world_c / "jobs" / job_id
+    job_dir.mkdir(parents=True)
+
+    spec = JobSpec(
+        job_id=job_id,
+        title="Resonance Gap Sweep",
+        lineage_author="glm_5_2",
+        realm_source="world_a",
+        script_content="print('mean r = nan')",
+    )
+
+    res = JobResult(
+        job_id=job_id,
+        status=JobStatus.COMPLETED,
+        exit_code=0,
+        started_at=100.0,
+        finished_at=110.0,
+        execution_time_seconds=10.0,
+        stdout_tail="mean r = nan, std r = nan\nC_max = 0.0000",
+        stderr_tail="RuntimeWarning: overflow encountered in divide\nRuntimeWarning: invalid value encountered in multiply",
+        artifacts_generated=[],
+    )
+
+    bridge.write_completion_report(res, spec)
+
+    shared_report = world_a / "instances" / "shared_space" / "world_c" / "reports" / f"world_c_{job_id}_REPORT.md"
+    ws_report = author_ws / "world_c_results" / "REPORT.md"
+    assert "NUMERICAL CORRUPTION / NaN OVERFLOW DETECTED" in shared_report.read_text(encoding="utf-8")
+    assert "NUMERICAL CORRUPTION / NaN OVERFLOW DETECTED" in ws_report.read_text(encoding="utf-8")
+
+    rlog = json.loads((author_ws / "world_c_results" / "research_log.json").read_text(encoding="utf-8"))
+    assert "numerical-nan-warning" in rlog[0]["tags"]
