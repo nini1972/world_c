@@ -92,27 +92,44 @@ def _gray_scott_integrate_jit(
     return u, v
 
 
+def _coerce_grid_size(val) -> int:
+    """Coerce scalar int or 2D grid shape tuple/list/ndarray into an integer side length."""
+    if isinstance(val, (tuple, list, np.ndarray)):
+        return int(val[0])
+    return int(val)
+
+
 class GrayScott2D:
     def __init__(
         self,
-        grid_size: int = 128,
+        grid_size: Any = 128,
         Du: float = 0.16,
         Dv: float = 0.08,
         F: float = 0.035,
         k: float = 0.060,
         dt: float = 1.0,
         dx: float = 1.0,
-        N: Optional[int] = None,
-        size: Optional[int] = None,
-        L: Optional[int] = None,
+        N: Optional[Any] = None,
+        size: Optional[Any] = None,
+        L: Optional[Any] = None,
         **kwargs
     ):
         if N is not None:
-            grid_size = int(N)
+            grid_size = _coerce_grid_size(N)
         elif size is not None:
-            grid_size = int(size)
+            grid_size = _coerce_grid_size(size)
         elif L is not None:
-            grid_size = int(L)
+            grid_size = _coerce_grid_size(L)
+        elif "shape" in kwargs and kwargs["shape"] is not None:
+            grid_size = _coerce_grid_size(kwargs["shape"])
+        else:
+            grid_size = _coerce_grid_size(grid_size)
+        if "f" in kwargs and F == 0.035:
+            F = float(kwargs["f"])
+        elif "feed" in kwargs and F == 0.035:
+            F = float(kwargs["feed"])
+        if "kill" in kwargs and k == 0.060:
+            k = float(kwargs["kill"])
         self.N = int(grid_size)
         self.Du = Du
         self.Dv = Dv

@@ -315,8 +315,37 @@ class KuramotoEnsemble:
             
         self.theta = (th + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)) % (2 * np.pi)
 
+class KuramotoResult(dict):
+    """Dictionary returned by simulate_kuramoto that also acts as the final 1D phases array
+    in NumPy expressions (e.g. `np.exp(1j * phases)` or `np.asarray(phases)`)."""
+
+    def __array__(self, dtype=None, copy=None):
+        arr = np.asarray(self["phases"], dtype=dtype)
+        if copy:
+            return arr.copy()
+        return arr
+
+    def __mul__(self, other):
+        return np.asarray(self["phases"]) * other
+
+    def __rmul__(self, other):
+        return other * np.asarray(self["phases"])
+
+    def __add__(self, other):
+        return np.asarray(self["phases"]) + other
+
+    def __radd__(self, other):
+        return other + np.asarray(self["phases"])
+
+    def __sub__(self, other):
+        return np.asarray(self["phases"]) - other
+
+    def __rsub__(self, other):
+        return other - np.asarray(self["phases"])
+
+
 def simulate_kuramoto(
-    n_oscillators: int = 200,
+    n_oscillators: Any = 200,
     K: float = 2.0,
     t_max: float = 50.0,
     dt: float = 0.05,
@@ -325,14 +354,57 @@ def simulate_kuramoto(
     natural_frequencies: Optional[np.ndarray] = None,
     freq_distribution: str = "cauchy",
     freq_scale: float = 1.0,
-    seed: Optional[int] = 42
+    seed: Optional[int] = 42,
+    T: Optional[float] = None,
+    steps: Optional[int] = None,
+    n_steps: Optional[int] = None,
+    N: Optional[int] = None,
+    A: Optional[np.ndarray] = None,
+    adjacency_matrix: Optional[np.ndarray] = None,
+    omega: Optional[np.ndarray] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     Runs a complete Kuramoto integration and returns time series of the order parameter,
     steady-state order parameter, and susceptibility.
+    Supports passing an adjacency matrix or NetworkX graph as the first positional arg,
+    `T=` or `steps=` aliases, and array-protocol conversion on the returned KuramotoResult.
     """
+    if hasattr(n_oscillators, "nodes"):
+        import networkx as nx
+        A_mat = nx.to_numpy_array(n_oscillators, dtype=np.float64)
+        if coupling_matrix is None:
+            coupling_matrix = A_mat
+        n_oscillators = int(A_mat.shape[0])
+    elif isinstance(n_oscillators, (np.ndarray, list, tuple)) and np.ndim(n_oscillators) == 2:
+        A_mat = np.asarray(n_oscillators, dtype=np.float64)
+        if coupling_matrix is None:
+            coupling_matrix = A_mat
+        n_oscillators = int(A_mat.shape[0])
+
+    if N is not None:
+        n_oscillators = int(N)
+    if coupling_matrix is None:
+        if A is not None:
+            coupling_matrix = A
+        elif adjacency_matrix is not None:
+            coupling_matrix = adjacency_matrix
+        elif "adj" in kwargs and kwargs["adj"] is not None:
+            coupling_matrix = kwargs["adj"]
+    if natural_frequencies is None and omega is not None:
+        natural_frequencies = omega
+
+    if T is not None:
+        t_max = float(T)
+        total_steps = max(1, int(round(t_max / dt)))
+    elif steps is not None or n_steps is not None:
+        total_steps = max(1, int(steps if steps is not None else n_steps))
+        t_max = float(total_steps * dt)
+    else:
+        total_steps = max(1, int(t_max / dt))
+
     ensemble = KuramotoEnsemble(
-        n_oscillators=n_oscillators,
+        n_oscillators=int(n_oscillators),
         natural_frequencies=natural_frequencies,
         coupling_matrix=coupling_matrix,
         freq_distribution=freq_distribution,
@@ -342,7 +414,7 @@ def simulate_kuramoto(
         dt=dt
     )
     
-    n_steps = int(t_max / dt)
+    n_steps = total_steps
     n_transient = int(n_steps * transient_fraction)
     
     times = np.linspace(0, t_max, n_steps)
@@ -366,10 +438,10 @@ def simulate_kuramoto(
     steady_r = r_series[n_transient:]
     mean_r = float(np.mean(steady_r))
     std_r = float(np.std(steady_r))
-    susceptibility = float(n_oscillators * (std_r ** 2))
+    susceptibility = float(int(n_oscillators) * (std_r ** 2))
     
-    return {
-        "N": n_oscillators,
+    return KuramotoResult({
+        "N": int(n_oscillators),
         "K": K,
         "t_max": t_max,
         "dt": dt,
@@ -388,7 +460,7 @@ def simulate_kuramoto(
         "R": steady_r,
         "steady_std_r": std_r,
         "susceptibility": susceptibility
-    }
+    })
 
 def vectorized_kuramoto(
     N: Optional[int] = None,

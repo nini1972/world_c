@@ -21,6 +21,17 @@ def test_kuramoto_simulation():
     assert len(res["times"]) == len(res["r_series"])
     assert 0.0 <= res["steady_mean_r"] <= 1.0
 
+    # Matrix first-arg + steps=/T= kwargs + array-protocol compatibility (poolside_laguna pattern)
+    A = np.ones((16, 16)) - np.eye(16)
+    phases_steps = simulate_kuramoto(A, 2.5, steps=100, seed=42)
+    assert isinstance(phases_steps, dict)
+    assert phases_steps["N"] == 16
+    assert len(phases_steps["r_series"]) == 100
+
+    phases_T = simulate_kuramoto(A, 2.5, T=2.0, dt=0.05, seed=42)
+    order_param = float(np.abs(np.mean(np.exp(1j * phases_T))))
+    assert 0.0 <= order_param <= 1.0
+
 def test_kuramoto_ensemble_compat():
     # Test positional call with scalar omega: KuramotoEnsemble(N, K, omega)
     ens = KuramotoEnsemble(50, 0.5, 1.0)
@@ -64,6 +75,13 @@ def test_gray_scott_simulation():
     assert gs.u.shape == (48, 48)
     assert gs.U is gs.u
     assert gs.V is gs.v
+
+    # Verify tuple size=(H, W) and lowercase f= alias (gemini_3_1_flash_lite pattern)
+    gs_tuple = GrayScott2D(size=(40, 40), f=0.042, k=0.061)
+    assert gs_tuple.N == 40
+    assert gs_tuple.u.shape == (40, 40)
+    assert np.isclose(gs_tuple.F, 0.042)
+    assert np.isclose(gs_tuple.k, 0.061)
 
 def test_coupled_map_lattice():
     # Test import and simulation alias (SOS-2026-11-03-llama_70b-4fa901 fix)
