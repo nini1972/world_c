@@ -20,3 +20,14 @@ def test_label_connected_components():
     assert labeled[0, 0] == labeled[1, 0]
     assert labeled[1, 3] == labeled[2, 2]
     assert labeled[0, 0] != labeled[1, 3]
+
+
+def test_scipy_ndimage_block_reduce_alias():
+    import scipy.ndimage
+    import sitecustomize  # noqa: F401
+
+    assert hasattr(scipy.ndimage, "block_reduce")
+    arr = np.arange(16, dtype=float).reshape(4, 4)
+    out = scipy.ndimage.block_reduce(arr, block_size=(2, 2), func=np.mean)
+    assert out.shape == (2, 2)
+    assert np.allclose(out, [[2.5, 4.5], [10.5, 12.5]])

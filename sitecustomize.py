@@ -66,3 +66,12 @@ try:
         builtins.log = _safe_builtin_log
 except Exception:
     pass
+
+# Alias scipy.ndimage.block_reduce -> skimage.measure.block_reduce when absent
+try:
+    import scipy.ndimage
+    if not hasattr(scipy.ndimage, "block_reduce"):
+        from skimage.measure import block_reduce as _skimage_block_reduce
+        scipy.ndimage.block_reduce = _skimage_block_reduce
+except Exception:
+    pass
