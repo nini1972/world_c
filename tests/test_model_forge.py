@@ -46,3 +46,67 @@ def test_invariant_mind_config():
     assert config.model_name == "InvariantMind-v1"
     assert len(config.rg_scales) == 5
     assert "scaling_collapse_contrastive_loss" in config.training_objectives
+
+
+def test_tool_trajectory_curator_builds_clean_multiturn_hermes_dataset(tmp_path):
+    import re
+    from model_forge.tool_trajectory_curator import ToolTrajectoryCurator
+
+    wa_root = tmp_path / "world_a"
+    wb_root = tmp_path / "world_b"
+    out_dir = tmp_path / "data"
+
+    # Good lineage in World A (with one echo/pip_install noise turn interspersed)
+    good_log = wa_root / "instances" / "claude_sonnet_4_5" / "logs" / "history.jsonl"
+    good_log.parent.mkdir(parents=True)
+    # Self-excluded lineage (invariant_mind) must never be read even if passed explicitly
+    im_log = wa_root / "instances" / "invariant_mind" / "logs" / "history.jsonl"
+    im_log.parent.mkdir(parents=True)
+
+    rows = [
+        {"role": "assistant", "content": "Reading channel.", "tool_calls": [{"id": "c1", "function": {"name": "read_chat", "arguments": json.dumps({"channel": "#world-c-coordination"})}}]},
+        {"role": "tool", "tool_call_id": "c1", "name": "read_chat", "content": "msg_1 from @xiaomi_mimo"},
+        {"role": "assistant", "content": "Install pkg", "tool_calls": [{"id": "bad1", "function": {"name": "run_command", "arguments": json.dumps({"command": "pip install scipy"})}}]},
+        {"role": "tool", "tool_call_id": "bad1", "name": "run_command", "content": "ok"},
+        {"role": "assistant", "content": "Echo md", "tool_calls": [{"id": "bad2", "function": {"name": "run_command", "arguments": json.dumps({"command": "echo '# Atlas Heading\\n## Section'"})}}]},
+        {"role": "tool", "tool_call_id": "bad2", "name": "run_command", "content": "printed"},
+        {"role": "assistant", "content": "Writing simulation.", "tool_calls": [{"id": "c2", "function": {"name": "write_file", "arguments": json.dumps({"path": "sweep.py", "content": "print(42)"})}}]},
+        {"role": "tool", "tool_call_id": "c2", "name": "write_file", "content": "Successfully wrote sweep.py"},
+        {"role": "assistant", "content": "Running World C sweep.", "tool_calls": [{"id": "c3", "function": {"name": "submit_world_c_job", "arguments": json.dumps({"title": "Sweep", "script_content": "print(42)"})}}]},
+        {"role": "tool", "tool_call_id": "c3", "name": "submit_world_c_job", "content": "Job submitted: job_123"},
+    ]
+    good_log.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    im_log.write_text("\n".join(json.dumps(r) for r in rows[:4]) + "\n", encoding="utf-8")
+
+    curator = ToolTrajectoryCurator(
+        world_a_root=str(wa_root),
+        world_b_root=str(wb_root),
+        output_dir=str(out_dir),
+    )
+    records, stats = curator.curate(
+        world_a_lineages=["claude_sonnet_4_5", "invariant_mind"],
+        world_b_lineages=[],
+    )
+    assert len(records) == 1
+    assert stats["multi_turn_pct"] == 100.0
+    assert stats["hermes_tool_call_pct"] == 100.0
+    msgs = records[0]["messages"]
+    assert msgs[0]["role"] == "system"
+    assert msgs[1]["role"] == "user"
+
+    asst_msgs = [m for m in msgs if m["role"] == "assistant"]
+    tool_msgs = [m for m in msgs if m["role"] == "tool"]
+    assert len(asst_msgs) == 3
+    assert len(tool_msgs) == 3
+    payload_text = json.dumps(asst_msgs + tool_msgs)
+    assert "pip install" not in payload_text
+    assert "Atlas Heading" not in payload_text
+    for am in asst_msgs:
+        m_tc = re.search(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", am["content"], re.DOTALL)
+        assert m_tc is not None
+        parsed = json.loads(m_tc.group(1))
+        assert "name" in parsed and isinstance(parsed["arguments"], dict)
+        assert len(am["tool_calls"]) == 1
+
+    out_path = curator.export_jsonl(records, filename="v3_test.jsonl")
+    assert out_path.is_file()

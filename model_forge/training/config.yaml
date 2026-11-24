@@ -33,6 +33,40 @@ worker_model:
   logging_steps: 10
   save_strategy: "epoch"
 
+worker_v3_7b:
+  base_model: "Qwen/Qwen2.5-Coder-7B-Instruct"
+  output_dir: "./checkpoints/invariant_mind_worker_v3_7b"
+  max_seq_length: 8192
+  learning_rate: 1.0e-4
+  num_train_epochs: 2
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  optim: "paged_adamw_8bit"
+  warmup_ratio: 0.05
+  lr_scheduler_type: "cosine"
+  weight_decay: 0.01
+  logging_steps: 10
+  save_strategy: "epoch"
+  lora_r: 32
+  lora_alpha: 64
+
+worker_v3_14b:
+  base_model: "Qwen/Qwen2.5-Coder-14B-Instruct"
+  output_dir: "./checkpoints/invariant_mind_worker_v3_14b"
+  max_seq_length: 8192
+  learning_rate: 8.0e-5
+  num_train_epochs: 2
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  optim: "paged_adamw_8bit"
+  warmup_ratio: 0.05
+  lr_scheduler_type: "cosine"
+  weight_decay: 0.01
+  logging_steps: 10
+  save_strategy: "epoch"
+  lora_r: 32
+  lora_alpha: 64
+
 # LoRA / PEFT Parameters
 peft:
   r: 64
@@ -59,5 +93,6 @@ quantization:
 # Dataset Paths
 datasets:
   sft_dataset: "data/colony_training_set_v2_full.jsonl"
+  sft_v3_dataset: "data/colony_training_set_v3_toolcall.jsonl"
   dpo_dataset: "data/colony_dpo_pairs_v1.jsonl"
   eval_split_ratio: 0.05

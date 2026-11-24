@@ -20,6 +20,9 @@ python -m vllm.entrypoints.openai.api_server \
     --lora-modules invariant-mind=$MODEL_PATH \
     --port $PORT \
     --host 0.0.0.0 \
-    --max-model-len 4096 \
+    --max-model-len 16384 \
+    --enable-auto-tool-choice \
+    --tool-call-parser hermes \
+    --enable-prefix-caching \
     --gpu-memory-utilization 0.90 \
     --trust-remote-code

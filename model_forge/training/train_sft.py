@@ -24,8 +24,8 @@ from trl import SFTTrainer
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train InvariantMind via QLoRA")
-    parser.add_argument("--tier", choices=["oracle", "worker"], default="oracle",
-                        help="Choose model tier: oracle (14B) or worker (7B)")
+    parser.add_argument("--tier", choices=["oracle", "worker", "worker_v3_7b", "worker_v3_14b"], default="oracle",
+                        help="Choose model tier: oracle (14B), worker (7B v1/v2), worker_v3_7b, or worker_v3_14b")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--data_path", default=None, help="Path to SFT jsonl dataset")
     parser.add_argument("--output_dir", default=None, help="Output directory for checkpoints")
@@ -33,8 +33,8 @@ def parse_args():
     parser.add_argument("--hub_model_id", default=None, help="HF repo ID (e.g., nini1972/InvariantMind-14B)")
     return parser.parse_args()
 
-def load_colony_dataset(data_path: str, tokenizer):
-    """Loads ShareGPT-style jsonl dataset and applies tokenizer chat template."""
+def load_colony_dataset(data_path: str, tokenizer=None):
+    """Loads v3 native multi-turn `messages` or legacy ShareGPT `conversations` JSONL records."""
     print(f"Loading colony dataset from: {data_path}")
     conversations_list = []
     with open(data_path, "r", encoding="utf-8") as f:
@@ -42,9 +42,23 @@ def load_colony_dataset(data_path: str, tokenizer):
             if not line.strip():
                 continue
             rec = json.loads(line)
+
+            if "messages" in rec and isinstance(rec["messages"], list):
+                messages = []
+                for m in rec["messages"]:
+                    role = m.get("role", "user")
+                    content = m.get("content", "")
+                    if role == "tool":
+                        messages.append({"role": "user", "content": f"<tool_response>\n{content}\n</tool_response>"})
+                    else:
+                        messages.append({"role": role, "content": content})
+                if messages:
+                    conversations_list.append({"messages": messages})
+                continue
+
             convs = rec.get("conversations", [])
             sys_msg = rec.get("system", "")
-            
+
             # Convert to standard ChatML messages
             messages = []
             if sys_msg:
@@ -52,9 +66,9 @@ def load_colony_dataset(data_path: str, tokenizer):
             for c in convs:
                 role = "user" if c.get("from") in ["human", "user"] else "assistant"
                 messages.append({"role": role, "content": c.get("value", "")})
-                
+
             conversations_list.append({"messages": messages})
-            
+
     print(f"Loaded {len(conversations_list)} dialogue trajectories.")
     dataset = Dataset.from_list(conversations_list)
     return dataset
@@ -71,13 +85,21 @@ def main():
     with open(cfg_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
         
-    model_cfg = cfg["oracle_model"] if args.tier == "oracle" else cfg["worker_model"]
+    if args.tier == "oracle":
+        model_cfg = cfg["oracle_model"]
+        default_ds = cfg["datasets"]["sft_dataset"]
+    elif args.tier == "worker":
+        model_cfg = cfg["worker_model"]
+        default_ds = cfg["datasets"]["sft_dataset"]
+    else:
+        model_cfg = cfg[args.tier]
+        default_ds = cfg["datasets"].get("sft_v3_dataset", cfg["datasets"]["sft_dataset"])
     base_model_name = model_cfg["base_model"]
     output_dir = args.output_dir or model_cfg["output_dir"]
-    data_path = args.data_path or os.path.join(os.path.dirname(__file__), "..", "..", cfg["datasets"]["sft_dataset"])
+    data_path = args.data_path or os.path.join(os.path.dirname(__file__), "..", "..", default_ds)
     
     print("=" * 60)
-    print(f"🚀 Launching InvariantMind-v1 Training ({args.tier.upper()} Tier)")
+    print(f"🚀 Launching InvariantMind Training ({args.tier.upper()} Tier)")
     print(f"Base Model: {base_model_name}")
     print(f"Output Directory: {output_dir}")
     print("=" * 60)
@@ -115,8 +137,8 @@ def main():
     
     # 4. LoRA Setup
     peft_cfg = LoraConfig(
-        r=cfg["peft"]["r"],
-        lora_alpha=cfg["peft"]["lora_alpha"],
+        r=int(model_cfg.get("lora_r", cfg["peft"]["r"])),
+        lora_alpha=int(model_cfg.get("lora_alpha", cfg["peft"]["lora_alpha"])),
         lora_dropout=cfg["peft"]["lora_dropout"],
         bias="none",
         task_type="CAUSAL_LM",
