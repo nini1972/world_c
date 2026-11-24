@@ -110,3 +110,31 @@ def test_tool_trajectory_curator_builds_clean_multiturn_hermes_dataset(tmp_path)
 
     out_path = curator.export_jsonl(records, filename="v3_test.jsonl")
     assert out_path.is_file()
+
+
+def test_train_sft_trims_trailing_tool_turns_and_upload_renders_v3_card(tmp_path):
+    from model_forge.training.train_sft import parse_colony_records
+    from model_forge.training.upload_to_hf import render_model_card
+
+    ds_file = tmp_path / "sample_v3.jsonl"
+    rec = {
+        "messages": [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "call1\n\n<tool_call>\n{\"name\":\"read_chat\",\"arguments\":{\"channel\":\"#lounge\"}}\n</tool_call>"},
+            {"role": "tool", "name": "read_chat", "content": "hi"},
+            {"role": "assistant", "content": "call2\n\n<tool_call>\n{\"name\":\"post_chat\",\"arguments\":{\"channel\":\"#lounge\",\"message\":\"done\"}}\n</tool_call>"},
+            {"role": "tool", "name": "post_chat", "content": "posted"},
+        ]
+    }
+    ds_file.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    parsed = parse_colony_records(str(ds_file))
+    assert len(parsed) == 1
+    msgs = parsed[0]["messages"]
+    assert msgs[-1]["role"] == "assistant"
+    assert msgs[3]["role"] == "user"
+    assert msgs[3]["content"].startswith("<tool_response>")
+
+    card = render_model_card("worker_v3_14b", "Ninitje/InvariantMind-Worker-v3-14B-Merged")
+    assert "Qwen/Qwen2.5-Coder-14B-Instruct" in card
+    assert "Ninitje/InvariantMind-Worker-v3-14B-Merged" in card

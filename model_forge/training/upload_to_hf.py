@@ -1,19 +1,13 @@
 """
-Upload InvariantMind-v1 Adapters (Oracle & Worker Tiers) to Hugging Face Hub
-Publishes the fine-tuned PEFT adapter with a comprehensive Model Card.
+Upload InvariantMind Checkpoints & Merged Weights to Hugging Face Hub
+Supports adapter uploads and BF16 PEFT-to-base weight merging for vLLM serving.
 """
 
-import os
-import sys
-import subprocess
 import argparse
-
-try:
-    from huggingface_hub import HfApi, create_repo
-except ImportError:
-    print("Installing huggingface_hub...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "huggingface_hub"])
-    from huggingface_hub import HfApi, create_repo
+import inspect
+import os
+import subprocess
+import sys
 
 ORACLE_MODEL_CARD = r"""---
 license: apache-2.0
@@ -44,39 +38,6 @@ tags:
 ## Training Highlights
 * **SFT Phase:** 417 optimizer steps across 3 epochs (1h 28m on NVIDIA A100-SXM4-80GB). Final training loss: **0.62**, token prediction accuracy: **93.1%**.
 * **DPO Phase:** Reward margin separation: **+31.73**, reward accuracy: **100%**.
-
-## How to Use
-
-```python
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import PeftModel
-
-base_model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B"
-adapter_id = "{repo_id}"
-
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_quant_type="nf4"
-)
-
-tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-base_model = AutoModelForCausalLM.from_pretrained(
-    base_model_name,
-    quantization_config=bnb_config,
-    device_map="auto"
-)
-model = PeftModel.from_pretrained(base_model, adapter_id)
-
-prompt = "Analyze the Kuramoto order parameter transition and explain how finite-size scaling impacts critical coupling Kc."
-messages = [{"role": "user", "content": prompt}]
-inputs = tokenizer(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True), return_tensors="pt").to("cuda")
-
-with torch.no_grad():
-    outputs = model.generate(**inputs, max_new_tokens=512, temperature=0.6)
-print(tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True))
-```
 """
 
 WORKER_MODEL_CARD = r"""---
@@ -97,90 +58,150 @@ tags:
 
 # InvariantMind-Worker-7B (Worker Engineer - 7B)
 
-**InvariantMind-Worker-7B** is the dedicated computational engineering and simulation synthesis engine of the dual-tier InvariantMind architecture. While the Tier 1 Oracle (`InvariantMind-v1-14B`) excels at high-level epistemic synthesis, hypothesis generation, and formal proofs, **Tier 2 Worker-7B** is specialized in transforming theoretical conjectures into verified, vectorized simulation code, numerical ODE/PDE integrators, and automated empirical experimentation.
-
-## Architecture & Lineage
-* **Base Model:** `Qwen/Qwen2.5-Coder-7B-Instruct`
-* **Fine-Tuning Method:** 4-bit NormalFloat QLoRA ($r=64, \alpha=128$)
-* **Colony Training Data:** 2,330 curated scientific episodes (19.4 MB) encompassing rigorous simulation scripts, verification suites, and epistemic tool calls.
-* **Target Capabilities:** High-performance vectorized scientific computing (NumPy, SciPy, Numba), stiff differential equation solvers, cellular automata engines, and conservation-law invariant checks.
-
-## How to Use
-
-```python
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import PeftModel
-
-base_model_name = "Qwen/Qwen2.5-Coder-7B-Instruct"
-adapter_id = "{repo_id}"
-
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_quant_type="nf4"
-)
-
-tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-base_model = AutoModelForCausalLM.from_pretrained(
-    base_model_name,
-    quantization_config=bnb_config,
-    device_map="auto"
-)
-model = PeftModel.from_pretrained(base_model, adapter_id)
-
-prompt = "Write an optimized, vectorized Python implementation using NumPy to simulate N coupled Kuramoto oscillators and compute order parameter R(t)."
-messages = [{"role": "user", "content": prompt}]
-inputs = tokenizer(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True), return_tensors="pt").to("cuda")
-
-with torch.no_grad():
-    outputs = model.generate(**inputs, max_new_tokens=600, temperature=0.6)
-print(tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True))
-```
+**InvariantMind-Worker-7B** is the dedicated computational engineering and simulation synthesis engine of the dual-tier InvariantMind architecture.
 """
 
+WORKER_V3_MODEL_CARD = r"""---
+license: apache-2.0
+base_model: {base_model}
+library_name: transformers
+pipeline_tag: text-generation
+tags:
+  - scientific-ai
+  - autonomous-agents
+  - colony-trained
+  - qlora
+  - hermes-tool-calling
+  - simulation-engineering
+  - world-c
+---
+
+# InvariantMind Worker v3 ({model_label})
+
+**`{repo_id}`** is the v3 multi-turn tool-calling upgrade of InvariantMind for **World A (Evolution Sandbox)**, **World B (Synthetic Agora)**, and **World C** compute dispatch.
+
+## Training & Capabilities
+* **Base Model:** `{base_model}`
+* **Dataset:** `data/colony_training_set_v3_toolcall.jsonl` (`1,200` curated multi-turn Hermes `<tool_call>` trajectories across 19 non-self frontier lineages; `100%` multi-turn, `100%` Hermes format)
+* **QLoRA Config:** 4-bit NF4 base, $r=32, \alpha=64$, `max_seq_length=8192`, `2` epochs, cosine schedule
+* **Tool Coverage:** `run_command`, `read_chat`, `post_chat`, `read_file`, `write_file`, `edit_file`, `submit_world_c_job`, `check_world_c_job`, `query_epistemic_graph`, `peer_verify_node`, `post_epistemic_node`, `read_agent_inbox`
+* **Serving:** Merged BF16 checkpoint intended for vLLM with `--enable-auto-tool-choice --tool-call-parser hermes`
+"""
+
+
+def render_model_card(tier: str, repo_id: str, base_model: str = None) -> str:
+    """Renders the Hugging Face README model card for a given training tier."""
+    if tier in ("worker_v3_7b", "worker_v3_14b"):
+        resolved_base = base_model or (
+            "Qwen/Qwen2.5-Coder-14B-Instruct" if tier == "worker_v3_14b" else "Qwen/Qwen2.5-Coder-7B-Instruct"
+        )
+        label = "14B Merged" if tier == "worker_v3_14b" else "7B Merged"
+        return (
+            WORKER_V3_MODEL_CARD.replace("{repo_id}", repo_id)
+            .replace("{base_model}", resolved_base)
+            .replace("{model_label}", label)
+        )
+    template = WORKER_MODEL_CARD if tier == "worker" else ORACLE_MODEL_CARD
+    return template.replace("{repo_id}", repo_id)
+
+
+def merge_adapter_weights(base_model: str, adapter_dir: str, merged_dir: str) -> str:
+    """Merges a PEFT LoRA adapter into full BF16 base weights and saves tokenizer + safetensors."""
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    print(f"Merging adapter '{adapter_dir}' into base model '{base_model}' (BF16)...")
+    tokenizer = AutoTokenizer.from_pretrained(base_model, trust_remote_code=True)
+
+    sig = inspect.signature(AutoModelForCausalLM.from_pretrained)
+    load_kwargs = {"device_map": "auto", "trust_remote_code": True}
+    if "dtype" in sig.parameters:
+        load_kwargs["dtype"] = torch.bfloat16
+    else:
+        load_kwargs["torch_dtype"] = torch.bfloat16
+
+    base = AutoModelForCausalLM.from_pretrained(base_model, **load_kwargs)
+    peft_model = PeftModel.from_pretrained(base, adapter_dir)
+    merged = peft_model.merge_and_unload()
+
+    os.makedirs(merged_dir, exist_ok=True)
+    merged.save_pretrained(merged_dir, safe_serialization=True, max_shard_size="4GB")
+    tokenizer.save_pretrained(merged_dir)
+    print(f"✅ Merged BF16 checkpoint + tokenizer saved to: {merged_dir}")
+    return merged_dir
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Upload InvariantMind to Hugging Face")
-    parser.add_argument("--repo_id", required=True, help="HF repo name, e.g., 'Ninitje/InvariantMind-Worker-7B'")
-    parser.add_argument("--tier", choices=["oracle", "worker"], default="worker", help="Model tier: oracle or worker")
+    parser = argparse.ArgumentParser(description="Merge and/or upload InvariantMind to Hugging Face")
+    parser.add_argument("--repo_id", required=True, help="HF repo name, e.g., 'Ninitje/InvariantMind-Worker-v3-14B-Merged'")
+    parser.add_argument(
+        "--tier",
+        choices=["oracle", "worker", "worker_v3_7b", "worker_v3_14b"],
+        default="worker_v3_14b",
+        help="Model tier",
+    )
+    parser.add_argument("--base_model", default=None, help="Base Hugging Face model ID (required for --merge)")
+    parser.add_argument("--merge", action="store_true", help="Merge LoRA adapter into BF16 base weights before upload")
+    parser.add_argument("--merged_dir", default="./merged_model", help="Destination directory for merged weights")
+    parser.add_argument("--skip_upload", action="store_true", help="Merge only without uploading to Hugging Face")
     parser.add_argument("--token", default=None, help="Hugging Face access token with WRITE permission")
-    parser.add_argument("--adapter_dir", default=None, help="Path to adapter checkpoint")
+    parser.add_argument("--adapter_dir", default=None, help="Path to adapter or merged model checkpoint")
     parser.add_argument("--private", action="store_true", help="Make repository private")
     args = parser.parse_args()
 
-    token = args.token or os.environ.get("HF_TOKEN")
-    if not token:
-        raise ValueError("Please provide a Hugging Face token via --token or the HF_TOKEN environment variable.")
-
     adapter_dir = args.adapter_dir
     if not adapter_dir:
-        adapter_dir = "./checkpoints/invariant_mind_worker_7b" if args.tier == "worker" else "./checkpoints/invariant_mind_dpo"
+        defaults = {
+            "oracle": "./checkpoints/invariant_mind_dpo",
+            "worker": "./checkpoints/invariant_mind_worker_7b",
+            "worker_v3_7b": "./checkpoints/invariant_mind_worker_v3_7b",
+            "worker_v3_14b": "./checkpoints/invariant_mind_worker_v3_14b",
+        }
+        adapter_dir = defaults[args.tier]
+
+    upload_dir = adapter_dir
+    if args.merge:
+        base_model = args.base_model
+        if not base_model:
+            raise ValueError("--base_model is required when --merge is specified.")
+        upload_dir = merge_adapter_weights(base_model, adapter_dir, args.merged_dir)
+
+    readme_path = os.path.join(upload_dir, "README.md")
+    os.makedirs(upload_dir, exist_ok=True)
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write(render_model_card(args.tier, args.repo_id, args.base_model))
+    print(f"Generated Model Card ({readme_path})")
+
+    if args.skip_upload:
+        print("Skipping Hugging Face Hub upload (--skip_upload enabled).")
+        return
+
+    try:
+        from huggingface_hub import HfApi, create_repo
+    except ImportError:
+        print("Installing huggingface_hub...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "huggingface_hub"])
+        from huggingface_hub import HfApi, create_repo
+
+    token = args.token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if not token:
+        raise ValueError("Please provide a Hugging Face token via --token or the HF_TOKEN environment variable.")
 
     print("====================================================================")
     print(f"🚀 Uploading InvariantMind ({args.tier.upper()} Tier) to Hugging Face Hub")
     print(f"📦 Target Repository: {args.repo_id}")
-    print(f"📁 Local Checkpoint:  {adapter_dir}")
+    print(f"📁 Source Directory:  {upload_dir}")
     print("====================================================================")
 
     api = HfApi(token=token)
-
-    # 1. Create Repo if not exists
     create_repo(args.repo_id, token=token, private=args.private, exist_ok=True)
     print(f"Repository ready: https://huggingface.co/{args.repo_id}")
 
-    # 2. Write custom Model Card README
-    readme_path = os.path.join(adapter_dir, "README.md")
-    template = WORKER_MODEL_CARD if args.tier == "worker" else ORACLE_MODEL_CARD
-    with open(readme_path, "w", encoding="utf-8") as f:
-        f.write(template.replace("{repo_id}", args.repo_id))
-    print("Generated Model Card (README.md)")
-
-    # 3. Upload all files from adapter_dir
-    print(f"Uploading files from {adapter_dir} to {args.repo_id}...")
     api.upload_folder(
-        folder_path=adapter_dir,
+        folder_path=upload_dir,
         repo_id=args.repo_id,
-        repo_type="model"
+        repo_type="model",
     )
 
     print("====================================================================")
@@ -188,6 +209,6 @@ def main():
     print(f"🔗 View your model: https://huggingface.co/{args.repo_id}")
     print("====================================================================")
 
+
 if __name__ == "__main__":
     main()
-
