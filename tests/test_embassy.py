@@ -156,3 +156,81 @@ def test_embassy_bridge_flags_silent_nan_overflow(tmp_path):
 
     rlog = json.loads((author_ws / "world_c_results" / "research_log.json").read_text(encoding="utf-8"))
     assert "numerical-nan-warning" in rlog[0]["tags"]
+
+
+def test_embassy_bridge_flags_silent_exit0_traceback(tmp_path):
+    from compute_engine.job_spec import JobSpec, JobResult, JobStatus
+
+    world_a = tmp_path / "world_a"
+    world_c = tmp_path / "world_c"
+    author_ws = world_a / "instances" / "glm_5_2" / "agent_workspace"
+    author_ws.mkdir(parents=True)
+
+    bridge = EmbassyBridge(
+        world_a_root=str(world_a),
+        world_c_root=str(world_c),
+    )
+
+    # 1. Exit-0 job that caught a traceback and produced 0 valid data points
+    job_ok_id = "job_glm_5_2_exit0_tb"
+    (world_c / "jobs" / job_ok_id).mkdir(parents=True)
+    spec_ok = JobSpec(
+        job_id=job_ok_id,
+        title="Silent Traceback Test",
+        lineage_author="glm_5_2",
+        realm_source="world_a",
+        script_content="print('Total valid data points: 0')",
+    )
+    res_ok = JobResult(
+        job_id=job_ok_id,
+        status=JobStatus.COMPLETED,
+        exit_code=0,
+        started_at=100.0,
+        finished_at=104.0,
+        execution_time_seconds=4.0,
+        stdout_tail="Total valid data points: 0\nCOMPLETE",
+        stderr_tail=(
+            "Traceback (most recent call last):\n"
+            "AttributeError: 'DatasetDataArray' object has no attribute 'select_dtypes'"
+        ),
+        artifacts_generated=[],
+    )
+    bridge.write_completion_report(res_ok, spec_ok)
+
+    shared_report = world_a / "instances" / "shared_space" / "world_c" / "reports" / f"world_c_{job_ok_id}_REPORT.md"
+    ws_report = author_ws / "world_c_results" / "REPORT.md"
+    assert "SILENT RUNTIME ERROR / CAUGHT TRACEBACK DETECTED" in shared_report.read_text(encoding="utf-8")
+    assert "SILENT RUNTIME ERROR / CAUGHT TRACEBACK DETECTED" in ws_report.read_text(encoding="utf-8")
+
+    rlog = json.loads((author_ws / "world_c_results" / "research_log.json").read_text(encoding="utf-8"))
+    ok_entry = [e for e in rlog if e["job_id"] == job_ok_id][0]
+    assert "silent-runtime-error" in ok_entry["tags"]
+
+    # 2. Exit-1 FAILED job with a traceback must NOT trigger the silent exit-0 warning or tag
+    job_fail_id = "job_glm_5_2_exit1_tb"
+    (world_c / "jobs" / job_fail_id).mkdir(parents=True)
+    spec_fail = JobSpec(
+        job_id=job_fail_id,
+        title="Normal Failed Traceback Test",
+        lineage_author="glm_5_2",
+        realm_source="world_a",
+        script_content="raise RuntimeError('boom')",
+    )
+    res_fail = JobResult(
+        job_id=job_fail_id,
+        status=JobStatus.FAILED,
+        exit_code=1,
+        started_at=110.0,
+        finished_at=112.0,
+        execution_time_seconds=2.0,
+        stdout_tail="",
+        stderr_tail="Traceback (most recent call last):\nRuntimeError: boom",
+        artifacts_generated=[],
+    )
+    bridge.write_completion_report(res_fail, spec_fail)
+
+    fail_report = world_a / "instances" / "shared_space" / "world_c" / "reports" / f"world_c_{job_fail_id}_REPORT.md"
+    assert "SILENT RUNTIME ERROR / CAUGHT TRACEBACK DETECTED" not in fail_report.read_text(encoding="utf-8")
+    rlog2 = json.loads((author_ws / "world_c_results" / "research_log.json").read_text(encoding="utf-8"))
+    fail_entry = [e for e in rlog2 if e["job_id"] == job_fail_id][0]
+    assert "silent-runtime-error" not in fail_entry["tags"]

@@ -31,3 +31,17 @@ def test_scipy_ndimage_block_reduce_alias():
     out = scipy.ndimage.block_reduce(arr, block_size=(2, 2), func=np.mean)
     assert out.shape == (2, 2)
     assert np.allclose(out, [[2.5, 4.5], [10.5, 12.5]])
+
+
+def test_scipy_ndimage_measurements_block_reduce_alias():
+    import warnings
+    import sitecustomize  # noqa: F401
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        from scipy.ndimage.measurements import block_reduce
+
+    arr = np.arange(16, dtype=float).reshape(4, 4)
+    out = block_reduce(arr, block_size=(2, 2), func=np.mean)
+    assert out.shape == (2, 2)
+    assert np.allclose(out, [[2.5, 4.5], [10.5, 12.5]])

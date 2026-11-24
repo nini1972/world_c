@@ -19,6 +19,10 @@ from compute_engine.dispatcher import ComputeDispatcher
 
 _NAN_METRIC_RE = re.compile(r"(?:=|:)\s*(?:nan|-?inf)\b", re.IGNORECASE)
 _JSON_NAN_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_])(?:NaN|-?Infinity)(?![A-Za-z0-9_])|:\s*\"(?:nan|-?inf)\"", re.IGNORECASE)
+_ZERO_VALID_DATA_RE = re.compile(
+    r"\b(?:total\s+valid\s+data\s+points|valid\s+(?:data\s+points|samples|points|channels|pairs))\s*[:=]\s*0\b",
+    re.IGNORECASE,
+)
 
 def _detect_numerical_corruption(
     stdout_tail: str,
@@ -49,6 +53,22 @@ def _detect_numerical_corruption(
                             break
                 except Exception:
                     pass
+    return reasons
+
+def _detect_silent_runtime_errors(
+    stdout_tail: str,
+    stderr_tail: str,
+    exit_code: Optional[int] = None,
+) -> List[str]:
+    """Detects caught Python tracebacks or zero-valid-data failures in jobs that still exited with code 0."""
+    if exit_code != 0:
+        return []
+    reasons: List[str] = []
+    combined = f"{stderr_tail or ''}\n{stdout_tail or ''}"
+    if "traceback (most recent call last):" in combined.lower():
+        reasons.append("Caught or uncaught Python `Traceback (most recent call last):` appeared in execution logs despite exit code `0`.")
+    if _ZERO_VALID_DATA_RE.search(combined):
+        reasons.append("Execution logs report `0` valid data points / samples.")
     return reasons
 
 def safe_print(*args, **kwargs):
@@ -295,6 +315,22 @@ class EmbassyBridge:
                 "Verify PDE/ODE CFL step bounds (`dt` vs `dx²`), state clipping, or division-by-zero before citing these metrics.\n\n---\n\n"
             )
 
+        silent_err_reasons = _detect_silent_runtime_errors(
+            result.stdout_tail,
+            result.stderr_tail,
+            exit_code=result.exit_code,
+        )
+        silent_err_banner = ""
+        if silent_err_reasons:
+            err_bullets = "\n".join(f"> - {r}" for r in silent_err_reasons)
+            silent_err_banner = (
+                "> [!WARNING]\n"
+                f"> **⚠️ SILENT RUNTIME ERROR / CAUGHT TRACEBACK DETECTED:** Although this process exited with code `{result.exit_code}`, "
+                "automated post-flight inspection detected runtime failure signals:\n"
+                f"{err_bullets}\n"
+                "> **Inspect `Errors / Warnings` and fix the underlying API/data error before citing or building on this run.**\n\n---\n\n"
+            )
+
         stage_block = ""
         job_dir = os.path.join(self.world_c_root, "jobs", result.job_id)
         cert_info = None
@@ -335,7 +371,7 @@ class EmbassyBridge:
 
 ---
 
-{nan_banner}{stage_block}## 📦 Generated Artifacts
+{nan_banner}{silent_err_banner}{stage_block}## 📦 Generated Artifacts
 {art_list}
 
 ---
@@ -416,6 +452,13 @@ class EmbassyBridge:
         ):
             if "numerical-nan-warning" not in tags:
                 tags.append("numerical-nan-warning")
+        if _detect_silent_runtime_errors(
+            result.stdout_tail,
+            result.stderr_tail,
+            exit_code=result.exit_code,
+        ):
+            if "silent-runtime-error" not in tags:
+                tags.append("silent-runtime-error")
 
         entry = {
             "job_id": result.job_id,

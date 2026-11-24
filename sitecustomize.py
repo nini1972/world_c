@@ -67,11 +67,23 @@ try:
 except Exception:
     pass
 
-# Alias scipy.ndimage.block_reduce -> skimage.measure.block_reduce when absent
+# Alias scipy.ndimage.block_reduce and deprecated scipy.ndimage.measurements.block_reduce
+# -> skimage.measure.block_reduce when absent
 try:
+    import warnings
     import scipy.ndimage
+    from skimage.measure import block_reduce as _skimage_block_reduce
+
     if not hasattr(scipy.ndimage, "block_reduce"):
-        from skimage.measure import block_reduce as _skimage_block_reduce
         scipy.ndimage.block_reduce = _skimage_block_reduce
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            import scipy.ndimage.measurements as _scipy_ndimage_measurements
+        if "block_reduce" not in vars(_scipy_ndimage_measurements):
+            _scipy_ndimage_measurements.block_reduce = _skimage_block_reduce
+    except Exception:
+        pass
 except Exception:
     pass
