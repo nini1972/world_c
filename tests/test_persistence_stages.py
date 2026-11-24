@@ -62,6 +62,15 @@ def test_stage_tracker_arrays_and_resume():
 
         npz_path = t2.export_npz("combined_scan.npz")
         assert os.path.exists(npz_path)
+
+        state_file = os.path.join(tmp_dir, "test_kuramoto_scan_state.json")
+        cert_file = os.path.join(tmp_dir, "test_kuramoto_scan_horizon_certificate.json")
+        assert os.path.exists(state_file)
+        assert os.path.exists(cert_file)
+        state_text = open(state_file, "r", encoding="utf-8").read().strip()
+        cert_text = open(cert_file, "r", encoding="utf-8").read().strip()
+        assert "\n" not in state_text
+        assert "\n" in cert_text
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

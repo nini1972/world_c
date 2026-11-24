@@ -115,6 +115,24 @@ def test_takens_and_rqa():
     assert 0.0 <= metrics["recurrence_rate"] <= 1.0
     assert 0.0 <= metrics["determinism"] <= 1.0
 
+
+def test_recurrence_matrix_default_epsilon_warns():
+    import warnings
+    import pytest
+
+    t = np.linspace(0, 4 * np.pi, 100)
+    embedded = takens_embedding(np.sin(t) * 100.0, m=2, tau=1)
+
+    with pytest.warns(UserWarning, match="defaulting to unscaled epsilon=0.1"):
+        R_default = recurrence_matrix(embedded)
+    assert R_default.shape == (len(embedded), len(embedded))
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        recurrence_matrix(embedded, epsilon=0.2)
+        recurrence_matrix(embedded, target_rr=0.05)
+    assert not [w for w in caught if issubclass(w.category, UserWarning)]
+
 def test_adler_detector():
     detector = AdlerDetector(delta=1.0)
     # Locked regime K > delta

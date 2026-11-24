@@ -234,3 +234,62 @@ def test_embassy_bridge_flags_silent_exit0_traceback(tmp_path):
     rlog2 = json.loads((author_ws / "world_c_results" / "research_log.json").read_text(encoding="utf-8"))
     fail_entry = [e for e in rlog2 if e["job_id"] == job_fail_id][0]
     assert "silent-runtime-error" not in fail_entry["tags"]
+
+
+def test_embassy_bridge_deduplicates_stage_state_fanout(tmp_path):
+    from compute_engine.job_spec import JobSpec, JobResult, JobStatus
+
+    world_a = tmp_path / "world_a"
+    world_c = tmp_path / "world_c"
+    author_ws = world_a / "instances" / "glm_4_7_flash" / "agent_workspace"
+    author_ws.mkdir(parents=True)
+
+    bridge = EmbassyBridge(
+        world_a_root=str(world_a),
+        world_c_root=str(world_c),
+    )
+
+    job_id = "job_glm_4_7_flash_dedup"
+    job_dir = world_c / "jobs" / job_id
+    job_dir.mkdir(parents=True)
+    for fname in ("plot.png", "demo_horizon_certificate.json", "demo_state.json"):
+        (job_dir / fname).write_text("payload", encoding="utf-8")
+
+    spec = JobSpec(
+        job_id=job_id,
+        title="Stage Dedup Test",
+        lineage_author="glm_4_7_flash",
+        realm_source="world_a",
+        script_content="print('ok')",
+        stage_name="demo",
+    )
+    res = JobResult(
+        job_id=job_id,
+        status=JobStatus.COMPLETED,
+        exit_code=0,
+        started_at=100.0,
+        finished_at=105.0,
+        execution_time_seconds=5.0,
+        stdout_tail="ok",
+        stderr_tail="",
+        artifacts_generated=["plot.png", "demo_horizon_certificate.json", "demo_state.json"],
+    )
+
+    bridge.dispatcher._save_result(res)
+    bridge.publish_completed_artifacts(job_id, target_realms=["world_a"], lineage_author="glm_4_7_flash")
+
+    shared_art = world_a / "instances" / "shared_space" / "world_c" / "artifacts"
+    ws_res = author_ws / "world_c_results"
+
+    # Regular artifacts + horizon certificate go to all 4 destinations
+    for fname in ("plot.png", "demo_horizon_certificate.json"):
+        assert (shared_art / job_id / fname).exists()
+        assert (shared_art / f"world_c_{job_id}_{fname}").exists()
+        assert (ws_res / fname).exists()
+        assert (ws_res / f"world_c_{job_id}_{fname}").exists()
+
+    # Stage checkpoint state file goes ONLY to canonical shared artifacts/<job_id>/
+    assert (shared_art / job_id / "demo_state.json").exists()
+    assert not (shared_art / f"world_c_{job_id}_demo_state.json").exists()
+    assert not (ws_res / "demo_state.json").exists()
+    assert not (ws_res / f"world_c_{job_id}_demo_state.json").exists()

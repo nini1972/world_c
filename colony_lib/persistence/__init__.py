@@ -42,11 +42,14 @@ def _normalize_key(key: Any) -> str:
     return str(key)
 
 
-def _atomic_write_json(path: str, payload: Dict[str, Any]) -> None:
+def _atomic_write_json(path: str, payload: Dict[str, Any], compact: bool = False) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp_path = f"{path}.tmp.{os.getpid()}"
     with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        if compact:
+            json.dump(payload, f, separators=(",", ":"))
+        else:
+            json.dump(payload, f, indent=2)
     os.replace(tmp_path, path)
 
 
@@ -647,8 +650,8 @@ class StageTracker:
             try:
                 if self._arrays:
                     _atomic_write_npz(os.path.join(abspath, self.arrays_filename), self._arrays)
-                _atomic_write_json(os.path.join(abspath, self.state_filename), payload)
-                _atomic_write_json(os.path.join(abspath, self.cert_filename), cert)
+                _atomic_write_json(os.path.join(abspath, self.state_filename), payload, compact=True)
+                _atomic_write_json(os.path.join(abspath, self.cert_filename), cert, compact=False)
             except Exception:
                 pass
 

@@ -8,6 +8,7 @@ and fundamental RQA metrics:
 - Diagonal Line Length Shannon Entropy (ENTR)
 """
 
+import warnings
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from typing import Dict, Any, Optional
@@ -51,6 +52,13 @@ def recurrence_matrix(
                 epsilon = float(cand)
                 break
         else:
+            warnings.warn(
+                "recurrence_matrix() called with epsilon=None and no target_rr; defaulting to "
+                "unscaled epsilon=0.1, which can produce DET=0.0 on unnormalized series. "
+                "Pass an explicit target_rr (e.g. target_rr=0.05) or explicit epsilon.",
+                UserWarning,
+                stacklevel=2,
+            )
             epsilon = 0.1
 
     return (dists <= float(epsilon)).astype(np.uint8)

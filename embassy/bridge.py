@@ -71,6 +71,11 @@ def _detect_silent_runtime_errors(
         reasons.append("Execution logs report `0` valid data points / samples.")
     return reasons
 
+def _is_stage_checkpoint_file(filename: str) -> bool:
+    """Returns True for stage checkpoint payloads that already have canonical stage storage."""
+    base = os.path.basename(filename)
+    return base.endswith("_state.json") or base.endswith("_arrays.npz")
+
 def safe_print(*args, **kwargs):
     try:
         print(*args, **kwargs)
@@ -258,18 +263,23 @@ class EmbassyBridge:
             for art in result.artifacts_generated:
                 src_art = os.path.join(job_dir, art)
                 if os.path.exists(src_art):
-                    # Flat prefixed in shared artifacts
-                    dst_art = os.path.join(dest, f"world_c_{job_id}_{os.path.basename(art)}")
-                    shutil.copyfile(src_art, dst_art)
                     # Inside dedicated job_id folder (clean filename)
                     dst_sub_art = os.path.join(job_subdest, os.path.basename(art))
                     shutil.copyfile(src_art, dst_sub_art)
-                    safe_print(f"[Embassy Bridge] Published artifact to {dst_art} and {dst_sub_art}")
+                    # Flat prefixed in shared artifacts (skip stage checkpoint payloads; kept under stages/ and <job_id>/)
+                    if not _is_stage_checkpoint_file(art):
+                        dst_art = os.path.join(dest, f"world_c_{job_id}_{os.path.basename(art)}")
+                        shutil.copyfile(src_art, dst_art)
+                        safe_print(f"[Embassy Bridge] Published artifact to {dst_art} and {dst_sub_art}")
+                    else:
+                        safe_print(f"[Embassy Bridge] Published stage checkpoint artifact to {dst_sub_art}")
 
         # Copy to author's workspace with both clean name and prefixed name
         for ws_dest in workspace_destinations:
             os.makedirs(ws_dest, exist_ok=True)
             for art in result.artifacts_generated:
+                if _is_stage_checkpoint_file(art):
+                    continue
                 src_art = os.path.join(job_dir, art)
                 if os.path.exists(src_art):
                     # Clean filename (e.g. plot.png)
