@@ -83,7 +83,7 @@ tags:
 ## Training & Capabilities
 * **Base Model:** `{base_model}`
 * **Dataset:** `data/colony_training_set_v3_toolcall.jsonl` (`1,200` curated multi-turn Hermes `<tool_call>` trajectories across 19 non-self frontier lineages; `100%` multi-turn, `100%` Hermes format)
-* **QLoRA Config:** 4-bit NF4 base, $r=32, \alpha=64$, `max_seq_length=8192`, `2` epochs, cosine schedule
+* **QLoRA Config:** 4-bit NF4 base, $r=32, \alpha=64$, `max_seq_length=8192`, `2` epochs, cosine schedule, tool-schema-aligned ChatML
 * **Tool Coverage:** `run_command`, `read_chat`, `post_chat`, `read_file`, `write_file`, `edit_file`, `submit_world_c_job`, `check_world_c_job`, `query_epistemic_graph`, `peer_verify_node`, `post_epistemic_node`, `read_agent_inbox`
 * **Serving:** Merged BF16 checkpoint intended for vLLM with `--enable-auto-tool-choice --tool-call-parser hermes`
 """
@@ -93,7 +93,7 @@ def render_model_card(tier: str, repo_id: str, base_model: str = None) -> str:
     """Renders the Hugging Face README model card for a given training tier."""
     if tier in ("worker_v3_7b", "worker_v3_14b"):
         resolved_base = base_model or (
-            "Qwen/Qwen2.5-Coder-14B-Instruct" if tier == "worker_v3_14b" else "Qwen/Qwen2.5-Coder-7B-Instruct"
+            "Qwen/Qwen2.5-14B-Instruct" if tier == "worker_v3_14b" else "Qwen/Qwen2.5-7B-Instruct"
         )
         label = "14B Merged" if tier == "worker_v3_14b" else "7B Merged"
         return (

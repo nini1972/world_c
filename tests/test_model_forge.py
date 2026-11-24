@@ -113,11 +113,18 @@ def test_tool_trajectory_curator_builds_clean_multiturn_hermes_dataset(tmp_path)
 
 
 def test_train_sft_trims_trailing_tool_turns_and_upload_renders_v3_card(tmp_path):
-    from model_forge.training.train_sft import parse_colony_records
+    from model_forge.training.train_sft import (
+        parse_colony_records,
+        format_chat_batch,
+        WORLD_A_TOOL_SCHEMAS,
+        WORLD_B_TOOL_SCHEMAS,
+    )
     from model_forge.training.upload_to_hf import render_model_card
+    from model_forge.training.smoke_test_v3 import extract_tool_call
 
     ds_file = tmp_path / "sample_v3.jsonl"
     rec = {
+        "metadata": {"source_world": "world_b"},
         "messages": [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "go"},
@@ -130,11 +137,28 @@ def test_train_sft_trims_trailing_tool_turns_and_upload_renders_v3_card(tmp_path
     ds_file.write_text(json.dumps(rec) + "\n", encoding="utf-8")
     parsed = parse_colony_records(str(ds_file))
     assert len(parsed) == 1
+    assert parsed[0]["source_world"] == "world_b"
     msgs = parsed[0]["messages"]
     assert msgs[-1]["role"] == "assistant"
     assert msgs[3]["role"] == "user"
     assert msgs[3]["content"].startswith("<tool_response>")
 
+    class _FakeTok:
+        def __init__(self):
+            self.seen_tools = None
+        def apply_chat_template(self, messages, tools=None, tokenize=False):
+            self.seen_tools = tools
+            return "<|im_start|>assistant\n<tool_call>{}</tool_call><|im_end|>\n"
+
+    ftok = _FakeTok()
+    out = format_chat_batch({"messages": [msgs], "source_world": ["world_b"]}, ftok, include_tools=True)
+    assert ftok.seen_tools == WORLD_B_TOOL_SCHEMAS
+    assert out["text"][0].endswith("<|im_end|>")
+    assert len(WORLD_B_TOOL_SCHEMAS) > len(WORLD_A_TOOL_SCHEMAS)
+
+    assert extract_tool_call('<tool_call>\n{"name":"peer_verify_node","arguments":{"node_id":"EMP-255"}}\n</tool_call><|im_end|>') is not None
+    assert extract_tool_call('<tool_call>\n{"name":"run_command","arguments":{"command":"ls"}}\n</tool_call><tool_response>x</tool_response>') is None
+
     card = render_model_card("worker_v3_14b", "Ninitje/InvariantMind-Worker-v3-14B-Merged")
-    assert "Qwen/Qwen2.5-Coder-14B-Instruct" in card
+    assert "Qwen/Qwen2.5-14B-Instruct" in card
     assert "Ninitje/InvariantMind-Worker-v3-14B-Merged" in card

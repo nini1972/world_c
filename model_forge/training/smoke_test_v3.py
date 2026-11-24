@@ -1,6 +1,8 @@
 """
-Post-Merge Smoke Test for InvariantMind v3 Native Hermes Tool Calling.
-Runs deterministic generation against the merged BF16 directory before Hub upload.
+Hermes Native Tool-Calling Smoke Test for InvariantMind v3.
+Verifies BOTH base model and merged BF16 checkpoint emit valid
+<tool_call>{"name": ..., "arguments": {...}}</tool_call><|im_end|>
+without hallucinating <tool_response> continuations.
 """
 
 import argparse
@@ -59,15 +61,15 @@ WORLD_B_TOOLS = [
         "type": "function",
         "function": {
             "name": "peer_verify_node",
-            "description": "Submit empirical ENDORSE or REFUTE peer verification on an epistemic DAG node.",
+            "description": "Submit empirical endorse, refute, or inconclusive peer verification on an epistemic DAG node.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "node_id": {"type": "string"},
-                    "verdict": {"type": "string", "enum": ["ENDORSE", "REFUTE"]},
-                    "verification_report": {"type": "string"},
+                    "verdict": {"type": "string", "enum": ["endorse", "refute", "inconclusive"]},
+                    "critique_notes": {"type": "string"},
                 },
-                "required": ["node_id", "verdict", "verification_report"],
+                "required": ["node_id", "verdict", "critique_notes"],
             },
         },
     },
@@ -104,9 +106,11 @@ _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 
 
 def extract_tool_call(text: str):
-    """Parses the first Hermes <tool_call> JSON object from model output."""
+    """Parses the first Hermes <tool_call>...</tool_call> JSON object and checks clean termination."""
     m = _TOOL_CALL_RE.search(text or "")
     if not m:
+        return None
+    if "<tool_response>" in (text or ""):
         return None
     try:
         parsed = json.loads(m.group(1))
@@ -133,18 +137,18 @@ def run_prompt(model, tokenizer, messages, tools) -> str:
             max_new_tokens=512,
             do_sample=False,
         )
-    return tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+    return tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=False)
 
 
 def main():
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    parser = argparse.ArgumentParser(description="Smoke-test merged v3 Hermes tool calling")
-    parser.add_argument("--model_dir", required=True, help="Path to merged HF model directory")
+    parser = argparse.ArgumentParser(description="Smoke-test Hermes tool calling")
+    parser.add_argument("--model_dir", required=True, help="Path or HF ID of model to test")
     args = parser.parse_args()
 
-    print(f"Loading merged model from {args.model_dir}...")
+    print(f"Loading model from {args.model_dir}...")
     tokenizer = AutoTokenizer.from_pretrained(args.model_dir, trust_remote_code=True)
     sig = inspect.signature(AutoModelForCausalLM.from_pretrained)
     load_kwargs = {"device_map": "auto", "trust_remote_code": True}
@@ -195,7 +199,7 @@ def main():
                         "Active DAG node EMP-255 claims Kuramoto resonance gap delta_lambda = 0.021 +/- 0.002 "
                         "scaling as N^-0.18 across 4 network topologies. Our local validation script confirmed "
                         "delta_lambda = 0.022 +/- 0.002 on N=256 small-world (gamma=0.179). "
-                        "Record your ENDORSE peer verification on EMP-255 now."
+                        "Record your endorse peer verification on EMP-255 now."
                     ),
                 },
             ],
@@ -209,10 +213,10 @@ def main():
         print("\n" + "=" * 60)
         print(f"Smoke Test: {label}")
         output = run_prompt(model, tokenizer, messages, tools)
-        print(f"Raw output:\n{output}")
+        print(f"Raw output (skip_special_tokens=False):\n{output}")
         tc = extract_tool_call(output)
         if tc is None or tc["name"] not in expected_tools:
-            print(f"❌ FAIL [{label}]: expected tool in {sorted(expected_tools)}, got {tc}")
+            print(f"❌ FAIL [{label}]: expected clean <tool_call>...</tool_call> in {sorted(expected_tools)}, got {tc}")
             all_ok = False
         else:
             print(f"✅ PASS [{label}]: parsed tool `{tc['name']}` with keys {list(tc['arguments'].keys())}")

@@ -25,6 +25,8 @@
 ## 3. Step-by-Step v3 Training & Cutover Commands
 
 ### Step A — Train v3 QLoRA Adapter on a Cloud GPU Pod
+> **Note on Base Model Selection (`2026-11-24` finding):** `Qwen/Qwen2.5-Coder-14B-Instruct` leaves special tokens `151657 (<tool_call>)` and `151658 (</tool_call>)` with zero-norm input embeddings and identical dummy `lm_head` rows, causing QLoRA checkpoints to emit `<|repo_name|>` instead of `<tool_call>`. Use `Qwen/Qwen2.5-14B-Instruct` (or `Qwen/Qwen2.5-7B-Instruct`), which has actively trained `151657`/`151658` weights.
+
 * **7B Worker (fits 24 GB GPU, e.g., RTX 4090 / A5000):**
   ```bash
   cd model_forge/training
@@ -39,9 +41,11 @@
 ### Step B — Merge Adapter & Upload to Hugging Face
 ```bash
 python upload_to_hf.py \
-  --base_model Qwen/Qwen2.5-Coder-7B-Instruct \
-  --adapter_dir ./checkpoints/invariant_mind_worker_v3_7b \
-  --repo_id Ninitje/InvariantMind-Worker-v3-7B-Merged \
+  --tier worker_v3_14b \
+  --base_model Qwen/Qwen2.5-14B-Instruct \
+  --adapter_dir ./checkpoints/invariant_mind_worker_v3_14b \
+  --merged_dir ./merged_v3_14b \
+  --repo_id Ninitje/InvariantMind-Worker-v3-14B-Merged \
   --merge
 ```
 *(Swap `7B` → `14B` if training `worker_v3_14b`.)*
