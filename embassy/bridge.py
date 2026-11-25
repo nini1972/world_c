@@ -255,7 +255,7 @@ class EmbassyBridge:
                 author_ws = os.path.join(self.world_b_root, "instances", lineage_author, "agent_workspace", "world_c_results")
                 workspace_destinations.append(author_ws)
             
-        # Copy to shared destinations with world_c_{job_id}_ prefix AND dedicated job_id/ directory
+        # Copy to canonical per-job shared directory: world_c/artifacts/<job_id>/<basename>
         for dest in shared_destinations:
             os.makedirs(dest, exist_ok=True)
             job_subdest = os.path.join(dest, job_id)
@@ -263,18 +263,11 @@ class EmbassyBridge:
             for art in result.artifacts_generated:
                 src_art = os.path.join(job_dir, art)
                 if os.path.exists(src_art):
-                    # Inside dedicated job_id folder (clean filename)
                     dst_sub_art = os.path.join(job_subdest, os.path.basename(art))
                     shutil.copyfile(src_art, dst_sub_art)
-                    # Flat prefixed in shared artifacts (skip stage checkpoint payloads; kept under stages/ and <job_id>/)
-                    if not _is_stage_checkpoint_file(art):
-                        dst_art = os.path.join(dest, f"world_c_{job_id}_{os.path.basename(art)}")
-                        shutil.copyfile(src_art, dst_art)
-                        safe_print(f"[Embassy Bridge] Published artifact to {dst_art} and {dst_sub_art}")
-                    else:
-                        safe_print(f"[Embassy Bridge] Published stage checkpoint artifact to {dst_sub_art}")
+                    safe_print(f"[Embassy Bridge] Published canonical artifact to {dst_sub_art}")
 
-        # Copy to author's workspace with both clean name and prefixed name
+        # Copy single clean convenience copy to author's workspace: world_c_results/<basename>
         for ws_dest in workspace_destinations:
             os.makedirs(ws_dest, exist_ok=True)
             for art in result.artifacts_generated:
@@ -282,12 +275,8 @@ class EmbassyBridge:
                     continue
                 src_art = os.path.join(job_dir, art)
                 if os.path.exists(src_art):
-                    # Clean filename (e.g. plot.png)
                     dst_clean = os.path.join(ws_dest, os.path.basename(art))
                     shutil.copyfile(src_art, dst_clean)
-                    # Prefixed filename
-                    dst_pref = os.path.join(ws_dest, f"world_c_{job_id}_{os.path.basename(art)}")
-                    shutil.copyfile(src_art, dst_pref)
                     safe_print(f"[Embassy Bridge] Delivered artifact to author workspace: {dst_clean}")
 
     def write_completion_report(

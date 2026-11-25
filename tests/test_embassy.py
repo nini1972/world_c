@@ -99,15 +99,17 @@ def test_embassy_bridge_dedicated_delivery(tmp_path):
     assert "Test Scaling" in report_text
     assert "NUMERICAL CORRUPTION" not in report_text
     
-    dedicated_art = world_a / "instances" / "shared_space" / "world_c" / "artifacts" / f"world_c_{job_id}_plot.png"
+    dedicated_art = world_a / "instances" / "shared_space" / "world_c" / "artifacts" / job_id / "plot.png"
     assert dedicated_art.exists()
+    assert not (world_a / "instances" / "shared_space" / "world_c" / "artifacts" / f"world_c_{job_id}_plot.png").exists()
     
-    # Verify author workspace direct delivery
+    # Verify author workspace direct delivery (single clean copy, no prefixed duplicate)
     ws_report = author_ws / "world_c_results" / "REPORT.md"
     assert ws_report.exists()
     
     ws_art = author_ws / "world_c_results" / "plot.png"
     assert ws_art.exists()
+    assert not (author_ws / "world_c_results" / f"world_c_{job_id}_plot.png").exists()
 
 
 def test_embassy_bridge_flags_silent_nan_overflow(tmp_path):
@@ -281,12 +283,12 @@ def test_embassy_bridge_deduplicates_stage_state_fanout(tmp_path):
     shared_art = world_a / "instances" / "shared_space" / "world_c" / "artifacts"
     ws_res = author_ws / "world_c_results"
 
-    # Regular artifacts + horizon certificate go to all 4 destinations
+    # Regular artifacts + horizon certificate go to canonical shared artifacts/<job_id>/ and clean ws_res/<fname> (no flat world_c_<job_id>_ duplicates)
     for fname in ("plot.png", "demo_horizon_certificate.json"):
         assert (shared_art / job_id / fname).exists()
-        assert (shared_art / f"world_c_{job_id}_{fname}").exists()
+        assert not (shared_art / f"world_c_{job_id}_{fname}").exists()
         assert (ws_res / fname).exists()
-        assert (ws_res / f"world_c_{job_id}_{fname}").exists()
+        assert not (ws_res / f"world_c_{job_id}_{fname}").exists()
 
     # Stage checkpoint state file goes ONLY to canonical shared artifacts/<job_id>/
     assert (shared_art / job_id / "demo_state.json").exists()
