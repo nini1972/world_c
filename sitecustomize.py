@@ -87,3 +87,38 @@ try:
         pass
 except Exception:
     pass
+
+# Compatibility shim for Matplotlib >= 3.9 where boxplot(..., labels=...) was renamed to tick_labels=...
+try:
+    import inspect
+    import functools
+    import matplotlib.axes
+    import matplotlib.pyplot as _plt
+
+    def _wrap_boxplot_labels(fn):
+        if getattr(fn, "_world_c_labels_shimmed", False):
+            return fn
+        try:
+            params = inspect.signature(fn).parameters
+        except Exception:
+            params = {}
+        accepts_tick_labels = "tick_labels" in params
+        accepts_labels = "labels" in params
+
+        @functools.wraps(fn)
+        def _boxplot_compat(*args, **kwargs):
+            if "labels" in kwargs and "tick_labels" not in kwargs and accepts_tick_labels:
+                kwargs = dict(kwargs)
+                kwargs["tick_labels"] = kwargs.pop("labels")
+            elif "tick_labels" in kwargs and "labels" not in kwargs and accepts_labels and not accepts_tick_labels:
+                kwargs = dict(kwargs)
+                kwargs["labels"] = kwargs.pop("tick_labels")
+            return fn(*args, **kwargs)
+
+        _boxplot_compat._world_c_labels_shimmed = True
+        return _boxplot_compat
+
+    matplotlib.axes.Axes.boxplot = _wrap_boxplot_labels(matplotlib.axes.Axes.boxplot)
+    _plt.boxplot = _wrap_boxplot_labels(_plt.boxplot)
+except Exception:
+    pass

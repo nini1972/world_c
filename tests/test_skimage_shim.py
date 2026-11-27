@@ -45,3 +45,19 @@ def test_scipy_ndimage_measurements_block_reduce_alias():
     out = block_reduce(arr, block_size=(2, 2), func=np.mean)
     assert out.shape == (2, 2)
     assert np.allclose(out, [[2.5, 4.5], [10.5, 12.5]])
+
+
+def test_matplotlib_boxplot_labels_compat_shim():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import sitecustomize  # noqa: F401
+
+    fig, ax = plt.subplots()
+    try:
+        res1 = ax.boxplot([[1.0, 2.0, 3.0], [2.0, 3.0, 4.0]], labels=["A", "B"])
+        assert "boxes" in res1
+        res2 = plt.boxplot([1.0, 2.0, 3.0], positions=[1], labels=["Surrogates"])
+        assert "boxes" in res2
+    finally:
+        plt.close("all")
